@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+.swiftpm/
+.netrc
+*.xcodeproj/
+*.xcworkspace/
+Package.resolved
+GHub.app/
