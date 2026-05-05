@@ -19,20 +19,9 @@ struct RepoRow: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 10)
                     statusDot
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(repo.name)
-                            .font(.callout.weight(.medium))
-                            .lineLimit(1)
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text(repo.currentBranch ?? "—")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
+                    Text(repo.name)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
                     Spacer()
                     badges
                 }
@@ -141,7 +130,7 @@ struct RepoRow: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 2)
                     }
                 }
             }
@@ -173,7 +162,7 @@ struct RepoRow: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 2)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -211,7 +200,7 @@ struct RepoRow: View {
                             }
                             Spacer()
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 2)
                     }
                 }
             }
