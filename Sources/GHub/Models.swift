@@ -34,6 +34,8 @@ struct Branch: Identifiable, Hashable, Sendable {
     let behind: Int
     let lastCommitAt: Date?
     let isCurrent: Bool
+
+    var shortHeadSHA: String { String(headSHA.prefix(7)) }
 }
 
 struct Commit: Identifiable, Hashable, Sendable {

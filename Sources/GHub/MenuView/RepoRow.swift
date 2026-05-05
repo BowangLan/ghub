@@ -10,6 +10,8 @@ struct RepoRow: View {
     @State private var prs: [PullRequest] = []
     @State private var commits: [Commit] = []
     @State private var checksByPR: [Int: [CICheck]] = [:]
+    @State private var isSwitchingBranch = false
+    @State private var workingTreeDiff: GitClient.WorkingTreeDiff = .empty
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -104,33 +106,22 @@ struct RepoRow: View {
             if !branches.isEmpty {
                 section("Branches") {
                     ForEach(branches.prefix(8)) { b in
-                        HStack {
-                            Image(systemName: b.isCurrent ? "arrow.right.circle.fill" : "circle")
-                                .foregroundStyle(b.isCurrent ? Color.accentColor : .secondary)
-                                .font(.subheadline)
-                                .frame(width: 16)
-                            Text(b.name)
-                                .font(.subheadline)
-                                .lineLimit(1)
-                            if b.ahead > 0 {
-                                Text("⇡\(b.ahead)").font(.caption).foregroundStyle(.secondary)
+                        if b.isCurrent {
+                            branchRowStack(b)
+                                .padding(.vertical, 2)
+                        } else {
+                            Button {
+                                Task { @MainActor in
+                                    await switchToBranch(b)
+                                }
+                            } label: {
+                                branchRowStack(b)
+                                    .padding(.vertical, 2)
+                                    .contentShape(Rectangle())
                             }
-                            if b.behind > 0 {
-                                Text("⇣\(b.behind)").font(.caption).foregroundStyle(.secondary)
-                            }
-                            if b.upstream == nil {
-                                Text("no upstream")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            Spacer()
-                            if let d = b.lastCommitAt {
-                                Text(d, style: .relative)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            .buttonStyle(.plain)
+                            .disabled(isSwitchingBranch)
                         }
-                        .padding(.vertical, 2)
                     }
                 }
             }
@@ -231,6 +222,114 @@ struct RepoRow: View {
         }
     }
 
+    @ViewBuilder
+    private func branchRowStack(_ b: Branch) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Image(systemName: b.isCurrent ? "arrow.right.circle.fill" : "circle")
+                    .foregroundStyle(b.isCurrent ? Color.accentColor : .secondary)
+                    .font(.subheadline)
+                    .frame(width: 16)
+                Text(b.name)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                if b.ahead > 0 {
+                    Text("⇡\(b.ahead)").font(.caption).foregroundStyle(.secondary)
+                }
+                if b.behind > 0 {
+                    Text("⇣\(b.behind)").font(.caption).foregroundStyle(.secondary)
+                }
+                if b.upstream == nil {
+                    Text("no upstream")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                if let d = b.lastCommitAt {
+                    Text(d, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if b.isCurrent {
+                workingTreeDiffSubtitle(
+                    diff: workingTreeDiff,
+                    untracked: repo.untrackedCount,
+                    tipSHA: b.shortHeadSHA
+                )
+                .padding(.leading, 24)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func workingTreeDiffSubtitle(diff: GitClient.WorkingTreeDiff, untracked: Int, tipSHA: String) -> some View {
+        let st = diff.staged
+        let us = diff.unstaged
+        let hasDelta = st.hasDelta || us.hasDelta
+        let clean = !hasDelta && untracked == 0
+
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(tipSHA)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
+            if clean {
+                Text("·")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.quaternary)
+                Text("Working tree clean")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                if st.hasDelta {
+                    Text("·")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.quaternary)
+                    diffStatLine(label: "Staged", stat: st)
+                }
+                if us.hasDelta {
+                    Text("·")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.quaternary)
+                    diffStatLine(label: "Unstaged", stat: us)
+                }
+                if untracked > 0 {
+                    Text("·")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.quaternary)
+                    Text(untracked == 1 ? "1 untracked" : "\(untracked) untracked")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private func diffStatLine(label: String, stat: GitClient.DiffShortstat) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            if stat.insertions > 0 {
+                Text("+\(stat.insertions)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Color(red: 0.13, green: 0.58, blue: 0.36))
+            }
+            if stat.deletions > 0 {
+                Text("−\(stat.deletions)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Color(red: 0.83, green: 0.22, blue: 0.24))
+            }
+            if stat.filesChanged > 0, stat.insertions == 0, stat.deletions == 0 {
+                Text("\(stat.filesChanged) file\(stat.filesChanged == 1 ? "" : "s")")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private func checkBadge(for pr: PullRequest) -> some View {
         let checks = checksByPR[pr.number] ?? []
         let symbol: String
@@ -260,5 +359,35 @@ struct RepoRow: View {
         self.prs = pr
         self.commits = cm
         self.checksByPR = byPR
+        self.workingTreeDiff = (try? await GitClient.workingTreeDiff(path: repo.path)) ?? .empty
+    }
+
+    @MainActor
+    private func switchToBranch(_ branch: Branch) async {
+        guard !branch.isCurrent else { return }
+        isSwitchingBranch = true
+        defer { isSwitchingBranch = false }
+        do {
+            try await GitClient.checkout(path: repo.path, branch: branch.name)
+            await SyncManager.shared.syncRepo(id: repo.id)
+            await loadDetails()
+        } catch {
+            let message: String
+            if let shell = error as? ShellError {
+                message = shell.description
+            } else {
+                message = error.localizedDescription
+            }
+            presentBranchSwitchError(message)
+        }
+    }
+
+    private func presentBranchSwitchError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Could not switch branch"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 }

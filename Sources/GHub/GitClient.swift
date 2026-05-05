@@ -22,6 +22,14 @@ enum GitClient {
         return s.isEmpty ? nil : s
     }
 
+    /// Absolute path for `git -C`: expands `~`, resolves symlinks, then uses `rev-parse --show-toplevel` when possible.
+    static func resolvedWorkTreePath(storedPath: String) async -> String {
+        let expanded = (storedPath as NSString).expandingTildeInPath
+        let symlinkResolved = URL(fileURLWithPath: expanded, isDirectory: true).resolvingSymlinksInPath().path
+        if let root = await toplevel(path: symlinkResolved) { return root }
+        return symlinkResolved
+    }
+
     static func remoteURL(path: String) async -> String? {
         let out = try? await Shell.run(bin, ["-C", path, "config", "--get", "remote.origin.url"])
         guard let out, out.status == 0 else { return nil }
@@ -101,6 +109,65 @@ enum GitClient {
             ))
         }
         return result
+    }
+
+    static func checkout(path: String, branch: String) async throws {
+        let root = await resolvedWorkTreePath(storedPath: path)
+        // `git checkout -- <name>` treats <name> as pathspecs, not a branch. Use `git switch` for branches.
+        var args = ["-C", root, "switch"]
+        if branch.hasPrefix("-") {
+            args.append("--")
+        }
+        args.append(branch)
+        _ = try await Shell.runChecked(bin, args)
+    }
+
+    /// Parsed `git diff --shortstat` line (staged and unstaged are fetched separately).
+    struct DiffShortstat: Sendable, Equatable {
+        var filesChanged: Int
+        var insertions: Int
+        var deletions: Int
+
+        var hasDelta: Bool { filesChanged > 0 || insertions > 0 || deletions > 0 }
+
+        static let empty = DiffShortstat(filesChanged: 0, insertions: 0, deletions: 0)
+    }
+
+    struct WorkingTreeDiff: Sendable, Equatable {
+        var staged: DiffShortstat
+        var unstaged: DiffShortstat
+
+        static let empty = WorkingTreeDiff(staged: .empty, unstaged: .empty)
+    }
+
+    /// Staged (`--cached`) vs unstaged working tree diffs vs `HEAD` / index.
+    static func workingTreeDiff(path: String) async throws -> WorkingTreeDiff {
+        async let stagedOut = Shell.run(bin, ["-C", path, "diff", "--cached", "--shortstat"])
+        async let unstagedOut = Shell.run(bin, ["-C", path, "diff", "--shortstat"])
+        let st = try await stagedOut
+        let us = try await unstagedOut
+        if st.status != 0 {
+            throw ShellError.nonZeroExit(status: st.status, stderr: st.stderr.isEmpty ? st.stdout : st.stderr)
+        }
+        if us.status != 0 {
+            throw ShellError.nonZeroExit(status: us.status, stderr: us.stderr.isEmpty ? us.stdout : us.stderr)
+        }
+        return WorkingTreeDiff(
+            staged: parseDiffShortstat(st.stdout),
+            unstaged: parseDiffShortstat(us.stdout)
+        )
+    }
+
+    private static func parseDiffShortstat(_ raw: String) -> DiffShortstat {
+        var files = 0, ins = 0, del = 0
+        for part in raw.split(separator: ",") {
+            let p = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let firstToken = p.split(separator: " ").first, let n = Int(firstToken) else { continue }
+            if p.contains("insertion") { ins = n }
+            else if p.contains("deletion") { del = n }
+            else if p.contains("file"), p.contains("changed") { files = n }
+        }
+        return DiffShortstat(filesChanged: files, insertions: ins, deletions: del)
     }
 
     static func recentCommits(path: String, repoID: String, branch: String?, limit: Int = 30) async throws -> [Commit] {
