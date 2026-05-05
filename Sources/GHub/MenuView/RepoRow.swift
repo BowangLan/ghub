@@ -1,154 +1,6 @@
 import SwiftUI
 import AppKit
 
-struct MenuView: View {
-    @EnvironmentObject var state: AppState
-    @State private var expanded: Set<String> = []
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            if state.repos.isEmpty {
-                emptyState
-            } else {
-                repoList
-            }
-            Divider()
-            footer
-        }
-        .frame(width: 380)
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: state.menuBarSymbol)
-                .foregroundStyle(state.totalFailing > 0 ? Color.red : .primary)
-            Text("GHub")
-                .font(.headline)
-            Spacer()
-            if !state.ghAvailable {
-                Label("gh missing", systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            } else if !state.ghAuthenticated {
-                Label("gh not logged in", systemImage: "person.crop.circle.badge.exclamationmark")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            } else if state.isSyncing {
-                ProgressView().controlSize(.small)
-            } else if let last = state.lastSyncedAt {
-                Text(last, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Button {
-                Task { await SyncManager.shared.syncAll() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .help("Refresh all")
-            .disabled(state.isSyncing)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
-    // MARK: - Empty
-
-    private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "tray")
-                .font(.title)
-                .foregroundStyle(.secondary)
-            Text("No repositories tracked")
-                .font(.subheadline)
-            Text("Add a local Git repository to start tracking commits, branches, PRs, and CI.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
-            Button("Add Repository…") { addRepo() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-        }
-        .padding(.vertical, 24)
-        .frame(maxWidth: .infinity)
-    }
-
-    // MARK: - List
-
-    private var repoList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(state.repos) { repo in
-                    RepoRow(
-                        repo: repo,
-                        isExpanded: expanded.contains(repo.id),
-                        toggle: {
-                            if expanded.contains(repo.id) { expanded.remove(repo.id) }
-                            else { expanded.insert(repo.id) }
-                        }
-                    )
-                    Divider()
-                }
-            }
-        }
-        .frame(maxHeight: 480)
-    }
-
-    // MARK: - Footer
-
-    private var footer: some View {
-        HStack(spacing: 14) {
-            Button("Add Repo…") { addRepo() }
-            Button("Refresh") { Task { await SyncManager.shared.syncAll() } }
-                .disabled(state.isSyncing)
-            Spacer()
-            SettingsLink { Text("Settings…") }
-                .simultaneousGesture(TapGesture().onEnded {
-                    NSApp.activate(ignoringOtherApps: true)
-                })
-            Button("Quit") { NSApp.terminate(nil) }
-        }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .font(.callout)
-    }
-
-    // MARK: - Actions
-
-    private func addRepo() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Add"
-        panel.message = "Choose a Git repository folder"
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task {
-            do { try await state.addRepoFolder(url) }
-            catch { presentError(error) }
-        }
-    }
-
-    private func presentError(_ error: Error) {
-        let alert = NSAlert()
-        alert.messageText = "GHub"
-        alert.informativeText = (error as NSError).localizedDescription
-        alert.alertStyle = .warning
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
-    }
-}
-
-// MARK: - Row
-
 struct RepoRow: View {
     let repo: Repo
     let isExpanded: Bool
@@ -191,7 +43,7 @@ struct RepoRow: View {
             if isExpanded {
                 expandedBody
                     .padding(.leading, 22)
-                    .padding(.top, 4)
+                    .padding(.top, 6)
             }
         }
         .padding(.horizontal, 12)
@@ -246,17 +98,17 @@ struct RepoRow: View {
     // MARK: - Expanded
 
     private var expandedBody: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             if let slug = repo.slug {
                 HStack(spacing: 4) {
-                    Image(systemName: "link").font(.caption2)
+                    Image(systemName: "link").font(.caption)
                     Text(slug)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             } else {
                 Text("No GitHub remote detected")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
@@ -266,29 +118,30 @@ struct RepoRow: View {
                         HStack {
                             Image(systemName: b.isCurrent ? "arrow.right.circle.fill" : "circle")
                                 .foregroundStyle(b.isCurrent ? Color.accentColor : .secondary)
-                                .font(.caption)
-                                .frame(width: 14)
+                                .font(.subheadline)
+                                .frame(width: 16)
                             Text(b.name)
-                                .font(.caption)
+                                .font(.subheadline)
                                 .lineLimit(1)
                             if b.ahead > 0 {
-                                Text("⇡\(b.ahead)").font(.caption2).foregroundStyle(.secondary)
+                                Text("⇡\(b.ahead)").font(.caption).foregroundStyle(.secondary)
                             }
                             if b.behind > 0 {
-                                Text("⇣\(b.behind)").font(.caption2).foregroundStyle(.secondary)
+                                Text("⇣\(b.behind)").font(.caption).foregroundStyle(.secondary)
                             }
                             if b.upstream == nil {
                                 Text("no upstream")
-                                    .font(.caption2)
+                                    .font(.caption)
                                     .foregroundStyle(.tertiary)
                             }
                             Spacer()
                             if let d = b.lastCommitAt {
                                 Text(d, style: .relative)
-                                    .font(.caption2)
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        .padding(.vertical, 4)
                     }
                 }
             }
@@ -302,24 +155,25 @@ struct RepoRow: View {
                             HStack(spacing: 6) {
                                 checkBadge(for: pr)
                                 Text("#\(pr.number)")
-                                    .font(.caption.monospaced())
+                                    .font(.subheadline.monospaced())
                                     .foregroundStyle(.secondary)
                                 Text(pr.title)
-                                    .font(.caption)
+                                    .font(.subheadline)
                                     .lineLimit(1)
                                 if pr.isDraft {
                                     Text("draft")
-                                        .font(.caption2)
+                                        .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .padding(.horizontal, 4)
                                         .background(Color.secondary.opacity(0.15), in: Capsule())
                                 }
                                 Spacer()
                                 Text(pr.headBranch)
-                                    .font(.caption2)
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }
+                            .padding(.vertical, 4)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -327,7 +181,7 @@ struct RepoRow: View {
                 }
             } else if repo.slug != nil {
                 Text("No open pull requests")
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -336,27 +190,28 @@ struct RepoRow: View {
                     ForEach(commits.prefix(5)) { c in
                         HStack(alignment: .top, spacing: 8) {
                             Text(c.shortSHA)
-                                .font(.caption2.monospaced())
+                                .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
-                                .frame(width: 56, alignment: .leading)
+                                .frame(width: 60, alignment: .leading)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(c.message)
-                                    .font(.caption)
+                                    .font(.subheadline)
                                     .lineLimit(1)
                                 HStack(spacing: 4) {
                                     Text(c.author)
-                                        .font(.caption2)
+                                        .font(.caption)
                                         .foregroundStyle(.secondary)
                                     if let d = c.date {
-                                        Text("·").font(.caption2).foregroundStyle(.secondary)
+                                        Text("·").font(.caption).foregroundStyle(.secondary)
                                         Text(d, style: .relative)
-                                            .font(.caption2)
+                                            .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
                                 }
                             }
                             Spacer()
                         }
+                        .padding(.vertical, 4)
                     }
                 }
             }
@@ -373,15 +228,15 @@ struct RepoRow: View {
                 }
             }
             .buttonStyle(.borderless)
-            .font(.caption)
+            .font(.subheadline)
         }
     }
 
     @ViewBuilder
     private func section(_ title: String, @ViewBuilder _ content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title.uppercased())
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
             content()
         }
@@ -400,7 +255,7 @@ struct RepoRow: View {
         } else {
             symbol = "circle.dotted"; color = .secondary
         }
-        return Image(systemName: symbol).foregroundStyle(color).font(.caption)
+        return Image(systemName: symbol).foregroundStyle(color).font(.subheadline)
     }
 
     private func loadDetails() async {
