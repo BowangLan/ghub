@@ -54,61 +54,27 @@ struct SettingsView: View {
     // MARK: - Repos
 
     private var reposTab: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Tracked repositories")
-                    .font(.headline)
-                Spacer()
-                Button("Add…") { addRepo() }
-            }
-            if state.repos.isEmpty {
-                Text("No repositories. Add one to begin.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(state.repos) { repo in
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(repo.name).font(.body.weight(.medium))
-                            Text(repo.path)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            if let slug = repo.slug {
-                                Text(slug).font(.caption2).foregroundStyle(.tertiary)
-                            }
-                        }
-                        Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { repo.syncEnabled },
-                            set: { newVal in
-                                Task { await state.setSyncEnabled(repoID: repo.id, enabled: newVal) }
-                            }
-                        ))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .help("Include in sync")
-                        Button {
-                            Task { await SyncManager.shared.syncRepo(id: repo.id) }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Sync now")
-                        Button(role: .destructive) {
-                            confirmRemove(repo)
-                        } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Remove")
+        Form {
+            Section {
+                if state.repos.isEmpty {
+                    Text("No repositories. Add one to begin.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(state.repos) { repo in
+                        RepoSettingsRow(repo: repo, onRemove: { confirmRemove(repo) })
                     }
-                    .padding(.vertical, 2)
                 }
+            } header: {
+                HStack {
+                    Text("Tracked Repositories")
+                    Spacer()
+                    Button("Add…") { addRepo() }
+                }
+            } footer: {
+                Text("PR filters use GitHub search syntax. Changes are saved automatically and refetch pull requests after a short pause.")
             }
         }
+        .formStyle(.grouped)
     }
 
     // MARK: - About
@@ -163,5 +129,155 @@ struct SettingsView: View {
         alert.informativeText = (error as NSError).localizedDescription
         alert.alertStyle = .warning
         alert.runModal()
+    }
+}
+
+private struct RepoSettingsRow: View {
+    @EnvironmentObject var state: AppState
+    let repo: Repo
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(repo.name)
+                        .font(.body.weight(.medium))
+                    Text(repo.slug ?? "No GitHub remote detected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Sync Now") {
+                    Task { await SyncManager.shared.syncRepo(id: repo.id) }
+                }
+                .disabled(state.isSyncing)
+                Button("Remove", role: .destructive, action: onRemove)
+            }
+
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 8) {
+                GridRow {
+                    Text("Location")
+                        .foregroundStyle(.secondary)
+                    Text(repo.path)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                GridRow {
+                    Text("Sync")
+                        .foregroundStyle(.secondary)
+                    Toggle("Include in automatic sync", isOn: Binding(
+                        get: { repo.syncEnabled },
+                        set: { newValue in
+                            Task { await state.setSyncEnabled(repoID: repo.id, enabled: newValue) }
+                        }
+                    ))
+                }
+                GridRow {
+                    Text("PR Filter")
+                        .foregroundStyle(.secondary)
+                    RepoPRFilterField(repo: repo)
+                }
+            }
+            .font(.callout)
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct RepoPRFilterField: View {
+    @EnvironmentObject var state: AppState
+    let repo: Repo
+    @State private var draft: String
+    @State private var phase: SavePhase = .idle
+    @State private var saveTask: Task<Void, Never>?
+
+    init(repo: Repo) {
+        self.repo = repo
+        _draft = State(initialValue: repo.prFilterQuery)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField("GitHub search, e.g. author:@me label:bug", text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.regular)
+                .frame(minWidth: 300)
+                .onChange(of: draft) { _, newValue in
+                    scheduleSave(newValue)
+                }
+                .onChange(of: repo.prFilterQuery) { _, newValue in
+                    if newValue != draft { draft = newValue }
+                }
+            HStack(spacing: 6) {
+                if phase.showsProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.6)
+                }
+                Text(phase.message)
+                    .font(.caption)
+                    .foregroundStyle(phase == .failed ? .red : .secondary)
+            }
+            .frame(height: 16, alignment: .leading)
+        }
+        .onDisappear {
+            saveTask?.cancel()
+        }
+    }
+
+    private func scheduleSave(_ query: String) {
+        saveTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == repo.prFilterQuery {
+            phase = .idle
+            return
+        }
+        phase = .pending
+        saveTask = Task {
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            if Task.isCancelled { return }
+            await MainActor.run { phase = .saving }
+            await state.setPRFilterQuery(repoID: repo.id, query: trimmed)
+            if Task.isCancelled { return }
+            await MainActor.run { phase = .refetching }
+            await SyncManager.shared.syncRepo(id: repo.id)
+            if Task.isCancelled { return }
+            await MainActor.run { phase = .saved }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if Task.isCancelled { return }
+            await MainActor.run { phase = .idle }
+        }
+    }
+}
+
+private enum SavePhase: Equatable {
+    case idle
+    case pending
+    case saving
+    case refetching
+    case saved
+    case failed
+
+    var message: String {
+        switch self {
+        case .idle:
+            return "Uses GitHub search syntax."
+        case .pending:
+            return "Waiting to save..."
+        case .saving:
+            return "Saving filter..."
+        case .refetching:
+            return "Refetching pull requests..."
+        case .saved:
+            return "Saved and updated."
+        case .failed:
+            return "Could not save filter."
+        }
+    }
+
+    var showsProgress: Bool {
+        self == .saving || self == .refetching
     }
 }

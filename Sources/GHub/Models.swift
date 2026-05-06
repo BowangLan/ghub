@@ -1,12 +1,15 @@
 import Foundation
 
 struct Repo: Identifiable, Hashable, Sendable {
+    static let defaultPRFilterQuery = "is:pr author:@me"
+
     let id: String
     var path: String
     var name: String
     var owner: String?
     var repoName: String?
     var defaultBranch: String?
+    var prFilterQuery: String
     var addedAt: Date
     var lastSyncedAt: Date?
     var syncEnabled: Bool

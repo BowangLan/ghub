@@ -66,6 +66,7 @@ actor Database {
           owner TEXT,
           repo_name TEXT,
           default_branch TEXT,
+          pr_filter_query TEXT NOT NULL DEFAULT 'is:pr author:@me',
           added_at REAL NOT NULL,
           last_synced_at REAL,
           sync_enabled INTEGER NOT NULL DEFAULT 1,
@@ -78,6 +79,13 @@ actor Database {
           failing_check_count INTEGER NOT NULL DEFAULT 0
         );
         """)
+        try addColumnIfMissing(
+            db,
+            table: "repos",
+            column: "pr_filter_query",
+            definition: "TEXT NOT NULL DEFAULT '\(Repo.defaultPRFilterQuery)'"
+        )
+        try execRaw(db, "UPDATE repos SET pr_filter_query = '\(Repo.defaultPRFilterQuery)' WHERE pr_filter_query = '';")
         try execRaw(db, """
         CREATE TABLE IF NOT EXISTS branches (
           repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
@@ -141,6 +149,25 @@ actor Database {
             let msg = err.map { String(cString: $0) } ?? "unknown"
             sqlite3_free(err)
             throw DBError.exec(msg)
+        }
+    }
+
+    private static func addColumnIfMissing(_ db: OpaquePointer, table: String, column: String, definition: String) throws {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &stmt, nil) == SQLITE_OK else {
+            throw DBError.prepare(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        var exists = false
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let name = sqlite3_column_text(stmt, 1), String(cString: name) == column {
+                exists = true
+                break
+            }
+        }
+        if !exists {
+            try execRaw(db, "ALTER TABLE \(table) ADD COLUMN \(column) \(definition);")
         }
     }
 
@@ -216,12 +243,12 @@ actor Database {
         let id = UUID().uuidString
         let now = Date()
         try runStmt(
-            "INSERT INTO repos (id, path, name, added_at, sync_enabled) VALUES (?, ?, ?, ?, 1);",
-            [id, path, name, now]
+            "INSERT INTO repos (id, path, name, pr_filter_query, added_at, sync_enabled) VALUES (?, ?, ?, ?, ?, 1);",
+            [id, path, name, Repo.defaultPRFilterQuery, now]
         )
         return Repo(
             id: id, path: path, name: name, owner: nil, repoName: nil, defaultBranch: nil,
-            addedAt: now, lastSyncedAt: nil, syncEnabled: true,
+            prFilterQuery: Repo.defaultPRFilterQuery, addedAt: now, lastSyncedAt: nil, syncEnabled: true,
             currentBranch: nil, isDirty: false, untrackedCount: 0,
             ahead: 0, behind: 0, openPRCount: 0, failingCheckCount: 0
         )
@@ -235,11 +262,15 @@ actor Database {
         try runStmt("UPDATE repos SET sync_enabled = ? WHERE id = ?;", [enabled, id])
     }
 
+    func setPRFilterQuery(id: String, query: String) throws {
+        try runStmt("UPDATE repos SET pr_filter_query = ? WHERE id = ?;", [query, id])
+    }
+
     func allRepos() throws -> [Repo] {
         let sql = """
-        SELECT id, path, name, owner, repo_name, default_branch, added_at, last_synced_at,
-               sync_enabled, current_branch, is_dirty, untracked_count, ahead, behind,
-               open_pr_count, failing_check_count
+        SELECT id, path, name, owner, repo_name, default_branch, pr_filter_query,
+               added_at, last_synced_at, sync_enabled, current_branch, is_dirty,
+               untracked_count, ahead, behind, open_pr_count, failing_check_count
         FROM repos ORDER BY name COLLATE NOCASE;
         """
         let stmt = try prepare(sql)
@@ -253,16 +284,17 @@ actor Database {
                 owner: textCol(stmt, 3),
                 repoName: textCol(stmt, 4),
                 defaultBranch: textCol(stmt, 5),
-                addedAt: dateCol(stmt, 6) ?? Date(),
-                lastSyncedAt: dateCol(stmt, 7),
-                syncEnabled: boolCol(stmt, 8),
-                currentBranch: textCol(stmt, 9),
-                isDirty: boolCol(stmt, 10),
-                untrackedCount: intCol(stmt, 11),
-                ahead: intCol(stmt, 12),
-                behind: intCol(stmt, 13),
-                openPRCount: intCol(stmt, 14),
-                failingCheckCount: intCol(stmt, 15)
+                prFilterQuery: textCol(stmt, 6) ?? "",
+                addedAt: dateCol(stmt, 7) ?? Date(),
+                lastSyncedAt: dateCol(stmt, 8),
+                syncEnabled: boolCol(stmt, 9),
+                currentBranch: textCol(stmt, 10),
+                isDirty: boolCol(stmt, 11),
+                untrackedCount: intCol(stmt, 12),
+                ahead: intCol(stmt, 13),
+                behind: intCol(stmt, 14),
+                openPRCount: intCol(stmt, 15),
+                failingCheckCount: intCol(stmt, 16)
             ))
         }
         return out

@@ -12,18 +12,22 @@ enum GHClient {
     }
 
     /// Fetch open PRs and their CI checks in a single `gh pr list` call.
-    static func fetchPRsAndChecks(slug: String, repoID: String) async throws -> ([PullRequest], [CICheck]) {
+    static func fetchPRsAndChecks(slug: String, repoID: String, searchQuery: String? = nil) async throws -> ([PullRequest], [CICheck]) {
         guard let bin else { throw ShellError.notFound("gh") }
         let fields = [
             "number", "title", "state", "isDraft",
             "headRefName", "baseRefName", "author", "url",
             "createdAt", "updatedAt", "mergedAt", "statusCheckRollup"
         ].joined(separator: ",")
-        let out = try await Shell.run(bin, [
+        var args = [
             "pr", "list", "--repo", slug,
             "--state", "open", "--limit", "50",
             "--json", fields
-        ])
+        ]
+        if let searchQuery = searchQuery?.trimmingCharacters(in: .whitespacesAndNewlines), !searchQuery.isEmpty {
+            args.append(contentsOf: ["--search", searchQuery])
+        }
+        let out = try await Shell.run(bin, args)
         if out.status != 0 {
             throw ShellError.nonZeroExit(status: out.status, stderr: out.stderr.isEmpty ? out.stdout : out.stderr)
         }

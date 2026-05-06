@@ -94,7 +94,11 @@ final class SyncManager {
             var checks: [CICheck] = []
             if let owner, let name, GHClient.isAvailable {
                 let slug = "\(owner)/\(name)"
-                if let result = try? await GHClient.fetchPRsAndChecks(slug: slug, repoID: repo.id) {
+                if let result = try? await GHClient.fetchPRsAndChecks(
+                    slug: slug,
+                    repoID: repo.id,
+                    searchQuery: repo.prFilterQuery
+                ) {
                     prs = result.0
                     checks = result.1
                 }

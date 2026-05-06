@@ -70,4 +70,9 @@ final class AppState: ObservableObject {
         try? await Database.shared.setSyncEnabled(id: repoID, enabled: enabled)
         await SyncManager.shared.reload()
     }
+
+    func setPRFilterQuery(repoID: String, query: String) async {
+        try? await Database.shared.setPRFilterQuery(id: repoID, query: query)
+        await SyncManager.shared.reload()
+    }
 }
