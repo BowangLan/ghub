@@ -89,6 +89,7 @@ final class MiniWindowController {
             .dropFirst()
             .sink { [weak self] minified in
                 Task { @MainActor in
+                    await Task.yield()
                     self?.applyMode(minified, animated: true)
                 }
             }
@@ -108,10 +109,7 @@ final class MiniWindowController {
 
         let targetContent: NSSize
         if minified {
-            targetContent = NSSize(
-                width: max(MiniWindowMetrics.minWidth, curContentSize.width),
-                height: MiniWindowMetrics.compactContentHeight
-            )
+            targetContent = compactContentSize(for: p, currentContentSize: curContentSize)
         } else {
             targetContent = loadExpandedContentSize()
                 ?? NSSize(width: MiniWindowMetrics.expandedDefaultSize.width,
@@ -121,7 +119,7 @@ final class MiniWindowController {
         // Adjust min size to match the mode so the user can't manually shrink past it.
         p.contentMinSize = NSSize(
             width: MiniWindowMetrics.minWidth,
-            height: minified ? MiniWindowMetrics.compactContentMinHeight
+            height: minified ? targetContent.height
                              : MiniWindowMetrics.expandedContentMinHeight
         )
 
@@ -151,6 +149,19 @@ final class MiniWindowController {
         } else {
             p.setFrame(newFrame, display: true)
         }
+    }
+
+    private func compactContentSize(for panel: NSPanel, currentContentSize: NSSize) -> NSSize {
+        let width = max(MiniWindowMetrics.minWidth, currentContentSize.width)
+        guard let hostView = panel.contentViewController?.view else {
+            return NSSize(width: width, height: currentContentSize.height)
+        }
+
+        hostView.setFrameSize(NSSize(width: width, height: hostView.frame.height))
+        hostView.needsLayout = true
+        hostView.layoutSubtreeIfNeeded()
+
+        return NSSize(width: width, height: max(1, hostView.fittingSize.height))
     }
 
     // MARK: - Persisted last-expanded size

@@ -8,16 +8,12 @@ enum MiniWindowMetrics {
     /// Width floor for the panel across both modes.
     static let minWidth: CGFloat = 360
 
-    /// Content (window-minus-titlebar) height of the fully collapsed compact card.
-    static let compactContentHeight: CGFloat = 76
-
     /// Default expanded content size used the first time the panel is shown
     /// (autosaved frame supersedes it on subsequent launches) and as the
     /// fallback when no persisted expanded size exists.
     static let expandedDefaultSize = CGSize(width: 380, height: 480)
 
-    /// Minimum content height the user can manually shrink to, per mode.
-    static let compactContentMinHeight: CGFloat = 150
+    /// Minimum content height the user can manually shrink to while expanded.
     static let expandedContentMinHeight: CGFloat = 400
 
     /// Validity floor for restoring a persisted expanded size — values below

@@ -22,7 +22,11 @@ struct MiniRepoView: View {
                 expandedEmpty
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: state.miniMinified ? nil : .infinity,
+            alignment: .topLeading
+        )
         .background(
             RoundedRectangle(cornerRadius: MiniWindowMetrics.shellCornerRadius, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
@@ -34,10 +38,8 @@ struct MiniRepoView: View {
         .clipShape(RoundedRectangle(cornerRadius: MiniWindowMetrics.shellCornerRadius, style: .continuous))
         .frame(
             minWidth: MiniWindowMetrics.minWidth,
-            minHeight: state.miniMinified
-                ? MiniWindowMetrics.compactContentHeight
-                : MiniWindowMetrics.expandedDefaultSize.height,
-            maxHeight: .infinity
+            minHeight: state.miniMinified ? nil : MiniWindowMetrics.expandedDefaultSize.height,
+            maxHeight: state.miniMinified ? nil : .infinity
         )
         .task(id: reloadKey) { await reload() }
     }
