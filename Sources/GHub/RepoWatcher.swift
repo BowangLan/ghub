@@ -81,7 +81,18 @@ final class RepoWatcher: @unchecked Sendable {
     }
 
     private static func isGitInternal(_ path: String) -> Bool {
-        path.contains("/.git/") || path.hasSuffix("/.git")
+        guard path.contains("/.git/") || path.hasSuffix("/.git") else { return false }
+        // Allow ref-mutation paths through so commits, checkouts, merges,
+        // and rebases trigger a resync. These files are not rewritten by
+        // `git status` / `git log` / `git branch`, so the FSEvents → sync
+        // loop documented above does not apply to them.
+        if path.hasSuffix("/.git/HEAD") { return false }
+        if path.hasSuffix("/.git/ORIG_HEAD") { return false }
+        if path.hasSuffix("/.git/MERGE_HEAD") { return false }
+        if path.hasSuffix("/.git/packed-refs") { return false }
+        if path.contains("/.git/refs/") { return false }
+        if path.contains("/.git/logs/") { return false }
+        return true
     }
 
     private func scheduleSync() {
