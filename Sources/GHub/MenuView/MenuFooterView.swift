@@ -10,6 +10,7 @@ struct MenuFooterView: View {
             Button("Add Repo…", action: onAddRepo)
             Button("Refresh") { Task { await SyncManager.shared.syncAll() } }
                 .disabled(state.isSyncing)
+            Button("Mini") { MiniWindowController.shared.toggle() }
             Spacer()
             SettingsLink { Text("Settings…") }
                 .simultaneousGesture(TapGesture().onEnded {

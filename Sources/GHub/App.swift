@@ -27,9 +27,12 @@ struct GHubApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        MiniWindowController.shared.show()
         Task {
             AppState.shared.ghAuthenticated = await GHClient.authStatus()
             await SyncManager.shared.start()
+            AppState.shared.ensureValidSelection()
+            AppState.shared.applyWatcher()
         }
     }
 }

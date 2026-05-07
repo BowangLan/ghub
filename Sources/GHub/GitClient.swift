@@ -122,6 +122,21 @@ enum GitClient {
         _ = try await Shell.runChecked(bin, args)
     }
 
+    static func commit(path: String, message: String) async throws {
+        let root = await resolvedWorkTreePath(storedPath: path)
+        _ = try await Shell.runChecked(bin, ["-C", root, "commit", "-m", message])
+    }
+
+    static func push(path: String) async throws {
+        let root = await resolvedWorkTreePath(storedPath: path)
+        _ = try await Shell.runChecked(bin, ["-C", root, "push"])
+    }
+
+    static func pull(path: String) async throws {
+        let root = await resolvedWorkTreePath(storedPath: path)
+        _ = try await Shell.runChecked(bin, ["-C", root, "pull", "--ff-only"])
+    }
+
     /// Parsed `git diff --shortstat` line (staged and unstaged are fetched separately).
     struct DiffShortstat: Sendable, Equatable {
         var filesChanged: Int

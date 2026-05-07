@@ -6,11 +6,22 @@ import AppKit
 final class AppState: ObservableObject {
     @MainActor static let shared = AppState()
 
-    @Published var repos: [Repo] = []
+    private static let selectedRepoIDKey = "selectedRepoID"
+
+    @Published var repos: [Repo] = [] {
+        didSet { applyWatcher() }
+    }
     @Published var isSyncing: Bool = false
     @Published var lastSyncedAt: Date?
     @Published var ghAvailable: Bool = GHClient.isAvailable
     @Published var ghAuthenticated: Bool = false
+
+    @Published var selectedRepoID: String? = UserDefaults.standard.string(forKey: AppState.selectedRepoIDKey) {
+        didSet {
+            UserDefaults.standard.set(selectedRepoID, forKey: Self.selectedRepoIDKey)
+            applyWatcher()
+        }
+    }
 
     @Published var refreshIntervalMinutes: Int = AppState.loadInterval() {
         didSet {
@@ -20,6 +31,22 @@ final class AppState: ObservableObject {
     }
 
     private init() {}
+
+    var selectedRepo: Repo? {
+        guard let id = selectedRepoID else { return nil }
+        return repos.first { $0.id == id }
+    }
+
+    /// Pick a default selection (first repo) if none is set or the previous one was removed.
+    func ensureValidSelection() {
+        if let id = selectedRepoID, repos.contains(where: { $0.id == id }) { return }
+        selectedRepoID = repos.first?.id
+    }
+
+    func applyWatcher() {
+        let path = selectedRepo?.path
+        RepoWatcher.shared.watch(repoID: selectedRepoID, path: path)
+    }
 
     private static func loadInterval() -> Int {
         let v = UserDefaults.standard.integer(forKey: "refreshIntervalMinutes")

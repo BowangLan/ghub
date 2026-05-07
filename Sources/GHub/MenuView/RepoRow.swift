@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct RepoRow: View {
+    @EnvironmentObject var state: AppState
     let repo: Repo
     let isExpanded: Bool
     let toggle: () -> Void
@@ -24,6 +25,11 @@ struct RepoRow: View {
                     Text(repo.name)
                         .font(.callout.weight(.medium))
                         .lineLimit(1)
+                    if state.selectedRepoID == repo.id {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     badges
                 }
@@ -205,6 +211,14 @@ struct RepoRow: View {
                 }
                 Button("Sync now") {
                     Task { await SyncManager.shared.syncRepo(id: repo.id) }
+                }
+                if state.selectedRepoID == repo.id {
+                    Button("Unpin") { state.selectedRepoID = nil }
+                } else {
+                    Button("Pin to mini") {
+                        state.selectedRepoID = repo.id
+                        MiniWindowController.shared.show()
+                    }
                 }
             }
             .buttonStyle(.borderless)
