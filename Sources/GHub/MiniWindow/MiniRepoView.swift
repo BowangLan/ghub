@@ -18,7 +18,9 @@ struct MiniRepoView: View {
             if let repo = selected {
                 VStack(alignment: .leading, spacing: DT.Spacing.v) {
                     Divider50()
-                    BranchRowSection(repo: repo, baseBranch: baseBranch(for: repo))
+                    BranchRowSection(repo: repo,
+                                     baseBranch: baseBranch(for: repo),
+                                     onAfterSwitch: { await reload() })
                     StatsGridSection(diff: diff)
                         .padding(.vertical, -DT.Spacing.v / 2)
                     BreakdownChipsSection(stagedCount: diff.staged.filesChanged,
