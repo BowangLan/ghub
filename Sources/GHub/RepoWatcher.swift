@@ -43,12 +43,17 @@ final class RepoWatcher: @unchecked Sendable {
             kFSEventStreamCreateFlagFileEvents
             | kFSEventStreamCreateFlagNoDefer
             | kFSEventStreamCreateFlagIgnoreSelf
+            | kFSEventStreamCreateFlagUseCFTypes
         )
 
-        let callback: FSEventStreamCallback = { (_, info, _, _, _, _) in
+        let callback: FSEventStreamCallback = { (_, info, numEvents, eventPaths, _, _) in
             guard let info else { return }
             let me = Unmanaged<RepoWatcher>.fromOpaque(info).takeUnretainedValue()
-            me.scheduleSync()
+            let arr = unsafeBitCast(eventPaths, to: NSArray.self)
+            var changedPaths: [String] = []
+            changedPaths.reserveCapacity(numEvents)
+            for case let p as String in arr { changedPaths.append(p) }
+            me.handle(paths: changedPaths)
         }
 
         guard let s = FSEventStreamCreate(
@@ -64,6 +69,19 @@ final class RepoWatcher: @unchecked Sendable {
         FSEventStreamSetDispatchQueue(s, queue)
         FSEventStreamStart(s)
         stream = s
+    }
+
+    private func handle(paths: [String]) {
+        // Drop events that are entirely git-internal. `git status` and our own
+        // sync touch `.git/index`, refs, etc., which would otherwise loop:
+        //   FSEvents → syncRepo → git ops touch .git → FSEvents → …
+        let userFacing = paths.contains { !Self.isGitInternal($0) }
+        guard userFacing else { return }
+        scheduleSync()
+    }
+
+    private static func isGitInternal(_ path: String) -> Bool {
+        path.contains("/.git/") || path.hasSuffix("/.git")
     }
 
     private func scheduleSync() {
