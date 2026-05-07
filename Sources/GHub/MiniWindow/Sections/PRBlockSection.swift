@@ -43,7 +43,10 @@ struct PRBlockSection: View {
                         .foregroundStyle(.secondary)
                         .opacity(checks.isEmpty ? 0 : 1)
                 }
-                CIProgressBar(groups: ciStatusGroups, total: checks.count)
+                CIProgressBar(groups: ciStatusGroups,
+                              total: checks.count,
+                              checks: checks,
+                              prURL: pr.url)
                 CILegend(groups: ciStatusGroups)
             }
         } else if currentBranch != nil {
@@ -56,21 +59,18 @@ struct PRBlockSection: View {
     private var passingCount: Int { checks.filter { $0.isSuccess }.count }
 
     private var ciStatusGroups: [CIGroup] {
-        var success = 0, running = 0, failed = 0, skip = 0
-        for c in checks {
-            if c.isFailing { failed += 1 }
-            else if c.isPending { running += 1 }
-            else if (c.conclusion?.uppercased() ?? "") == "SKIPPED" { skip += 1 }
-            else if c.isSuccess { success += 1 }
-            else { skip += 1 }
-        }
-        let raw: [(CIVariant, String, Int)] = [
-            (.success, "passing", success),
-            (.running, "running", running),
-            (.failed,  "failing", failed),
-            (.skip,    "skipped", skip),
+        var counts: [CIVariant: Int] = [:]
+        for c in checks { counts[CIVariant.bucket(for: c), default: 0] += 1 }
+        let raw: [(CIVariant, String)] = [
+            (.success, "passing"),
+            (.running, "running"),
+            (.failed,  "failing"),
+            (.skip,    "skipped"),
         ]
-        return raw.compactMap { v, l, c in c > 0 ? CIGroup(variant: v, label: l, count: c) : nil }
+        return raw.compactMap { v, l in
+            let n = counts[v] ?? 0
+            return n > 0 ? CIGroup(variant: v, label: l, count: n) : nil
+        }
     }
 
     private func pulseText(pr: PullRequest) -> String {
@@ -90,7 +90,16 @@ struct PRBlockSection: View {
 
 // MARK: - CI status data
 
-enum CIVariant { case success, running, failed, skip }
+enum CIVariant { case success, running, failed, skip
+
+    static func bucket(for check: CICheck) -> CIVariant {
+        if check.isFailing { return .failed }
+        if check.isPending { return .running }
+        if (check.conclusion?.uppercased() ?? "") == "SKIPPED" { return .skip }
+        if check.isSuccess { return .success }
+        return .skip
+    }
+}
 
 struct CIGroup {
     let variant: CIVariant
@@ -105,6 +114,15 @@ struct CIGroup {
         case .skip:    return Color.primary.opacity(0.30)
         }
     }
+
+    var iconName: String {
+        switch variant {
+        case .success: return "checkmark.circle.fill"
+        case .running: return "clock.fill"
+        case .failed:  return "xmark.octagon.fill"
+        case .skip:    return "minus.circle"
+        }
+    }
 }
 
 // MARK: - Sub-views
@@ -112,25 +130,204 @@ struct CIGroup {
 private struct CIProgressBar: View {
     let groups: [CIGroup]
     let total: Int
+    let checks: [CICheck]
+    let prURL: String
+
+    private let visualHeight: CGFloat = 6
+    private let hitHeight: CGFloat = 22
+
+    @State private var hoveredVariant: CIVariant?
+    @State private var dismissTask: Task<Void, Never>?
 
     var body: some View {
         let denom = max(total, 1)
         return GeometryReader { geo in
-            HStack(spacing: 0) {
-                ForEach(groups, id: \.variant) { g in
-                    Rectangle()
-                        .fill(g.color)
-                        .frame(width: geo.size.width * (CGFloat(g.count) / CGFloat(denom)))
-                        .pulseIfRunning(g.variant == .running)
+            ZStack {
+                visualBar(geo: geo, denom: denom)
+                hitOverlay(geo: geo, denom: denom)
+            }
+        }
+        .frame(height: hitHeight)
+    }
+
+    private func visualBar(geo: GeometryProxy, denom: Int) -> some View {
+        HStack(spacing: 0) {
+            ForEach(groups, id: \.variant) { g in
+                Rectangle()
+                    .fill(g.color)
+                    .frame(width: width(for: g, in: geo, denom: denom))
+                    .pulseIfRunning(g.variant == .running)
+            }
+            if groups.isEmpty {
+                Rectangle().fill(DT.Color.border)
+            }
+        }
+        .frame(height: visualHeight)
+        .background(DT.Color.border, in: Capsule())
+        .clipShape(Capsule())
+    }
+
+    private func hitOverlay(geo: GeometryProxy, denom: Int) -> some View {
+        HStack(spacing: 0) {
+            ForEach(groups, id: \.variant) { g in
+                hitSegment(g, width: width(for: g, in: geo, denom: denom))
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private func hitSegment(_ g: CIGroup, width: CGFloat) -> some View {
+        Color.clear
+            .frame(width: width)
+            .contentShape(Rectangle())
+            .onTapGesture { openChecksPage() }
+            .onHover { hovering in handleHover(g.variant, hovering: hovering) }
+            .pointingHand()
+            .popover(
+                isPresented: Binding(
+                    get: { hoveredVariant == g.variant },
+                    set: { newValue in if !newValue { hoveredVariant = nil } }
+                ),
+                arrowEdge: .bottom
+            ) {
+                CIChecksPopover(
+                    group: g,
+                    checks: filteredChecks(for: g.variant),
+                    onSelectCheck: { c in
+                        if let s = c.url, let url = URL(string: s) {
+                            NSWorkspace.shared.open(url)
+                        } else {
+                            openChecksPage()
+                        }
+                    },
+                    onOpenAll: { openChecksPage() },
+                    onContentHover: { inside in
+                        if inside {
+                            dismissTask?.cancel()
+                        } else {
+                            handleHover(nil, hovering: false)
+                        }
+                    }
+                )
+            }
+    }
+
+    private func width(for g: CIGroup, in geo: GeometryProxy, denom: Int) -> CGFloat {
+        geo.size.width * (CGFloat(g.count) / CGFloat(denom))
+    }
+
+    private func handleHover(_ variant: CIVariant?, hovering: Bool) {
+        dismissTask?.cancel()
+        if hovering, let variant {
+            hoveredVariant = variant
+        } else {
+            dismissTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 180_000_000)
+                if !Task.isCancelled { hoveredVariant = nil }
+            }
+        }
+    }
+
+    private func filteredChecks(for variant: CIVariant) -> [CICheck] {
+        checks.filter { CIVariant.bucket(for: $0) == variant }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func openChecksPage() {
+        let trimmed = prURL.hasSuffix("/") ? String(prURL.dropLast()) : prURL
+        guard let url = URL(string: trimmed + "/checks") else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
+private struct CIChecksPopover: View {
+    let group: CIGroup
+    let checks: [CICheck]
+    let onSelectCheck: (CICheck) -> Void
+    let onOpenAll: () -> Void
+    let onContentHover: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(group.color)
+                    .frame(width: 6, height: 6)
+                    .pulseIfRunning(group.variant == .running)
+                Text("\(checks.count) \(group.label)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 12)
+                Button(action: onOpenAll) {
+                    HStack(spacing: 3) {
+                        Text("All checks")
+                            .font(.system(size: 10, weight: .medium))
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .foregroundStyle(.secondary)
                 }
-                if groups.isEmpty {
-                    Rectangle().fill(DT.Color.border)
+                .buttonStyle(.plain)
+                .pointingHand()
+            }
+            Divider().opacity(0.4)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(checks) { c in
+                    CIChecksPopoverRow(check: c, color: group.color, onTap: { onSelectCheck(c) })
                 }
             }
         }
-        .frame(height: 6)
-        .background(DT.Color.border, in: Capsule())
-        .clipShape(Capsule())
+        .padding(10)
+        .frame(minWidth: 240, idealWidth: 280, maxWidth: 340)
+        .onHover { onContentHover($0) }
+    }
+}
+
+private struct CIChecksPopoverRow: View {
+    let check: CICheck
+    let color: Color
+    let onTap: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Image(systemName: iconName)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(color)
+                    .frame(width: 12)
+                Text(check.name)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                if check.url != nil {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 9))
+                        .foregroundStyle(hovered ? .secondary : .tertiary)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(hovered ? DT.Color.surfaceHover : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointingHand()
+        .onHover { hovered = $0 }
+    }
+
+    private var iconName: String {
+        if check.isFailing { return "xmark.circle.fill" }
+        if check.isPending { return "clock.fill" }
+        if (check.conclusion?.uppercased() ?? "") == "SKIPPED" { return "minus.circle" }
+        if check.isSuccess { return "checkmark.circle.fill" }
+        return "circle"
     }
 }
 
