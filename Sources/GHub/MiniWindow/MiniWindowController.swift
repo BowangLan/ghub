@@ -13,6 +13,9 @@ final class MiniWindowController {
     private var cancellables = Set<AnyCancellable>()
     private var appliedMinified: Bool = false
     private var resizeAnimator: WindowResizeAnimator?
+    private var mouseDownMonitor: Any?
+    private var mouseUpMonitor: Any?
+    private var dragStartFrame: NSRect?
 
     private static let lastExpandedWKey = "MiniWindow.lastExpandedW"
     private static let lastExpandedHKey = "MiniWindow.lastExpandedH"
@@ -58,6 +61,7 @@ final class MiniWindowController {
                                       height: MiniWindowMetrics.expandedContentMinHeight)
             panel = p
 
+            installDragMonitors()
             subscribeToMode()
 
             // Reconcile to persisted minified state without animation.
@@ -178,6 +182,78 @@ final class MiniWindowController {
     private func saveExpandedContentSize(_ size: NSSize) {
         UserDefaults.standard.set(size.width, forKey: Self.lastExpandedWKey)
         UserDefaults.standard.set(size.height, forKey: Self.lastExpandedHKey)
+    }
+
+    // MARK: - Edge snapping
+
+    /// `isMovableByWindowBackground` runs its drag tracking inside AppKit's
+    /// internal event loop, so the panel never sees `mouseDown`/`mouseUp` via
+    /// the responder chain. Local NSEvent monitors observe app-wide mouse
+    /// events and still fire during that loop, which lets us bracket the
+    /// drag and detect a frame change on release.
+    private func installDragMonitors() {
+        mouseDownMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown]
+        ) { [weak self] event in
+            guard let self, let p = self.panel else { return event }
+            if event.windowNumber == p.windowNumber {
+                self.dragStartFrame = p.frame
+            } else {
+                self.dragStartFrame = nil
+            }
+            return event
+        }
+
+        mouseUpMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseUp]
+        ) { [weak self] event in
+            guard let self else { return event }
+            if let start = self.dragStartFrame,
+               let p = self.panel,
+               p.frame != start {
+                Task { @MainActor in self.snapToNearestHorizontalEdge() }
+            }
+            self.dragStartFrame = nil
+            return event
+        }
+    }
+
+    private func snapToNearestHorizontalEdge() {
+        guard let p = panel else { return }
+        guard let screen = p.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let cur = p.frame
+
+        let distLeft = cur.minX - visible.minX
+        let distRight = visible.maxX - cur.maxX
+        let threshold = MiniWindowMetrics.edgeSnapThreshold
+
+        let targetX: CGFloat
+        if distLeft <= threshold, distLeft <= distRight {
+            targetX = visible.minX
+        } else if distRight <= threshold, distRight < distLeft {
+            targetX = visible.maxX - cur.width
+        } else {
+            return
+        }
+
+        let clampedX = max(visible.minX, min(targetX, visible.maxX - cur.width))
+        let clampedY = max(visible.minY, min(cur.minY, visible.maxY - cur.height))
+        let target = NSRect(x: clampedX, y: clampedY,
+                            width: cur.width, height: cur.height)
+        if target == cur { return }
+
+        resizeAnimator?.cancel()
+        let anim = WindowResizeAnimator(
+            window: p,
+            from: cur,
+            to: target,
+            duration: MiniWindowMetrics.edgeSnapAnimationDuration
+        ) { [weak self] in
+            self?.resizeAnimator = nil
+        }
+        resizeAnimator = anim
+        anim.start()
     }
 }
 

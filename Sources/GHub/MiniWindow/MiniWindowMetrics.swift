@@ -26,6 +26,14 @@ enum MiniWindowMetrics {
     /// resize (`WindowResizeAnimator`) reference this so they stay in lockstep.
     static let modeAnimationDuration: TimeInterval = 0.28
 
+    /// Drag-end snap-to-edge animation duration.
+    static let edgeSnapAnimationDuration: TimeInterval = 0.22
+
+    /// Snap-to-edge activation threshold. The window snaps to a screen edge
+    /// only if its nearest edge is within this many points of that screen
+    /// edge after a drag; otherwise the drop position is preserved.
+    static let edgeSnapThreshold: CGFloat = 160
+
     /// Rounded outer-shell radius shared by both modes.
     static let shellCornerRadius: CGFloat = 14
 }
