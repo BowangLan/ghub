@@ -49,16 +49,23 @@ struct MiniRepoView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 380, minHeight: 480)
-        .task(id: state.selectedRepoID ?? "_none_") { await reload() }
-        .onChange(of: selected?.lastSyncedAt) { _, _ in
-            Task { await reload() }
-        }
+        .task(id: reloadKey) { await reload() }
     }
 
     // MARK: - Derived
 
     private func baseBranch(for repo: Repo) -> String {
         currentPR?.baseBranch ?? repo.defaultBranch ?? "main"
+    }
+
+    /// Single key that drives `reload()` — re-fires whenever the selected repo,
+    /// its current branch, or its sync timestamp changes. Without `currentBranch`
+    /// here, switching branches inside the same repo would not re-pick the PR.
+    private var reloadKey: String {
+        let id = state.selectedRepoID ?? "_none_"
+        let branch = selected?.currentBranch ?? ""
+        let synced = selected?.lastSyncedAt.map { String($0.timeIntervalSince1970) } ?? ""
+        return "\(id)|\(branch)|\(synced)"
     }
 
     // MARK: - Loading
