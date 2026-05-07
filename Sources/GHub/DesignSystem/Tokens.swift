@@ -20,6 +20,8 @@ enum DT {
     enum Spacing {
         static let h: CGFloat = 16
         static let v: CGFloat = 16
+        static let windowPaddingVertical: CGFloat = 16
+        static let windowPaddingHorizontal: CGFloat = 16
     }
 
     enum Size {

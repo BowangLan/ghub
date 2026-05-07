@@ -2,6 +2,8 @@ import SwiftUI
 
 struct MiniRepoView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var modeNamespace
 
     @State private var diff: GitClient.WorkingTreeDiff = .empty
     @State private var currentPR: PullRequest?
@@ -11,45 +13,113 @@ struct MiniRepoView: View {
     private var selected: Repo? { state.selectedRepo }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HeaderSection(selected: selected,
-                          currentPR: currentPR,
-                          isSyncing: state.isSyncing)
-            if let repo = selected {
-                VStack(alignment: .leading, spacing: DT.Spacing.v) {
-                    Divider50()
-                    BranchRowSection(repo: repo,
-                                     baseBranch: baseBranch(for: repo),
-                                     onAfterSwitch: { await reload() })
-                    StatsGridSection(diff: diff)
-                        .padding(.vertical, -DT.Spacing.v / 2)
-                    BreakdownChipsSection(stagedCount: diff.staged.filesChanged,
-                                          unstagedCount: diff.unstaged.filesChanged,
-                                          untrackedCount: repo.untrackedCount)
-                    Divider50()
-                    PRBlockSection(pr: currentPR,
-                                   currentBranch: repo.currentBranch,
-                                   checks: currentChecks)
-                    Spacer(minLength: 0)
-                    Divider50()
-                    FooterBarSection(repo: repo,
-                                     stagedCount: diff.staged.filesChanged,
-                                     onAfterAction: { await reload() })
-                }
-                .padding(.horizontal, DT.Spacing.h)
-                .padding(.top, 4)
-                .padding(.bottom, 14)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        Group {
+            if let repo = selected, state.miniMinified {
+                compactBody(repo: repo)
+            } else if let repo = selected {
+                expandedBody(repo: repo)
             } else {
-                EmptyStateSection(reposIsEmpty: state.repos.isEmpty)
-                    .padding(.horizontal, DT.Spacing.h)
-                    .padding(.bottom, 16)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                expandedEmpty
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .frame(minWidth: 380, minHeight: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: MiniWindowMetrics.shellCornerRadius, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: MiniWindowMetrics.shellCornerRadius, style: .continuous)
+                .stroke(DT.Color.border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: MiniWindowMetrics.shellCornerRadius, style: .continuous))
+        .frame(
+            minWidth: MiniWindowMetrics.minWidth,
+            minHeight: state.miniMinified
+                ? MiniWindowMetrics.compactContentHeight
+                : MiniWindowMetrics.expandedDefaultSize.height,
+            maxHeight: .infinity
+        )
         .task(id: reloadKey) { await reload() }
+    }
+
+    // MARK: - Layouts
+
+    @ViewBuilder
+    private func compactBody(repo: Repo) -> some View {
+        MiniRepoCompactView(
+            repo: repo,
+            pr: currentPR,
+            diff: diff,
+            checks: currentChecks,
+            namespace: modeNamespace,
+            onToggleMode: toggleMode
+        )
+        .padding(.vertical, DT.Spacing.windowPaddingVertical)
+        .padding(.horizontal, DT.Spacing.windowPaddingHorizontal)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private func expandedBody(repo: Repo) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HeaderSection(selected: repo,
+                          currentPR: currentPR,
+                          isSyncing: state.isSyncing,
+                          namespace: modeNamespace,
+                          onToggleMode: toggleMode)
+            VStack(alignment: .leading, spacing: DT.Spacing.v) {
+                Divider50()
+
+                BranchSection(repo: repo,
+                              diff: diff,
+                              baseBranch: baseBranch(for: repo),
+                              onAfterSwitch: { await reload() })
+
+                Divider50()
+
+                PRBlockSection(pr: currentPR,
+                               currentBranch: repo.currentBranch,
+                               checks: currentChecks)
+
+                Spacer(minLength: 0)
+
+                Divider50()
+
+                FooterBarSection(repo: repo,
+                                 stagedCount: diff.staged.filesChanged,
+                                 onAfterAction: { await reload() })
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private var expandedEmpty: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HeaderSection(selected: nil,
+                          currentPR: nil,
+                          isSyncing: state.isSyncing,
+                          namespace: modeNamespace,
+                          onToggleMode: toggleMode)
+            EmptyStateSection(reposIsEmpty: state.repos.isEmpty)
+                .padding(.horizontal, DT.Spacing.h)
+                .padding(.bottom, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - Mode toggle
+
+    private func toggleMode() {
+        if reduceMotion {
+            state.miniMinified.toggle()
+        } else {
+            withAnimation(.easeInOut(duration: MiniWindowMetrics.modeAnimationDuration)) {
+                state.miniMinified.toggle()
+            }
+        }
     }
 
     // MARK: - Derived

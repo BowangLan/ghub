@@ -138,7 +138,7 @@ struct BranchSwitcher: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
         .disabled(isSwitching)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)

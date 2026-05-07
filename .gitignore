@@ -2,6 +2,7 @@
 .build/
 .swiftpm/
 .netrc
+.vscode/
 *.xcodeproj/
 *.xcworkspace/
 Package.resolved

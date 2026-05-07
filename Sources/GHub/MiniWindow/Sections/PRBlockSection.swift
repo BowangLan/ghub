@@ -7,53 +7,56 @@ struct PRBlockSection: View {
     let checks: [CICheck]
 
     var body: some View {
-        if let pr {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.triangle.pull")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                            Button {
-                                if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
-                            } label: {
-                                Text("#\(pr.number)")
-                                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.primary)
+        Group {
+            if let pr {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.triangle.pull")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                Button {
+                                    if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
+                                } label: {
+                                    Text("#\(pr.number)")
+                                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(.primary)
+                                }
+                                .buttonStyle(.plain)
+                                .pointingHand()
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                Text(pr.baseBranch)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                             }
-                            .buttonStyle(.plain)
-                            .pointingHand()
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                            Text(pr.baseBranch)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                            Text(pulseText(pr: pr))
+                                .font(.system(size: 11))
+                                .foregroundStyle(.tertiary)
                         }
-                        Text(pulseText(pr: pr))
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
+                        Spacer(minLength: 6)
+                        Text("\(passingCount)/\(checks.count) checks passed")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .opacity(checks.isEmpty ? 0 : 1)
                     }
-                    Spacer(minLength: 6)
-                    Text("\(passingCount)/\(checks.count) checks passed")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .opacity(checks.isEmpty ? 0 : 1)
+                    CIProgressBar(groups: ciStatusGroups,
+                                  total: checks.count,
+                                  checks: checks,
+                                  prURL: pr.url)
+                    CILegend(groups: ciStatusGroups)
                 }
-                CIProgressBar(groups: ciStatusGroups,
-                              total: checks.count,
-                              checks: checks,
-                              prURL: pr.url)
-                CILegend(groups: ciStatusGroups)
+            } else if currentBranch != nil {
+                MutedRow(icon: "circle.dotted", text: "No PR for this branch")
+            } else {
+                MutedRow(icon: "link.badge.plus", text: "Not connected to a GitHub remote")
             }
-        } else if currentBranch != nil {
-            MutedRow(icon: "circle.dotted", text: "No PR for this branch")
-        } else {
-            MutedRow(icon: "link.badge.plus", text: "Not connected to a GitHub remote")
         }
+        .padding(.horizontal, DT.Spacing.windowPaddingHorizontal)
     }
 
     private var passingCount: Int { checks.filter { $0.isSuccess }.count }

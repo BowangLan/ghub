@@ -7,6 +7,7 @@ final class AppState: ObservableObject {
     @MainActor static let shared = AppState()
 
     private static let selectedRepoIDKey = "selectedRepoID"
+    private static let miniMinifiedKey = "MiniWindow.minified"
 
     @Published var repos: [Repo] = [] {
         didSet { applyWatcher() }
@@ -21,6 +22,10 @@ final class AppState: ObservableObject {
             UserDefaults.standard.set(selectedRepoID, forKey: Self.selectedRepoIDKey)
             applyWatcher()
         }
+    }
+
+    @Published var miniMinified: Bool = UserDefaults.standard.bool(forKey: AppState.miniMinifiedKey) {
+        didSet { UserDefaults.standard.set(miniMinified, forKey: Self.miniMinifiedKey) }
     }
 
     @Published var refreshIntervalMinutes: Int = AppState.loadInterval() {
