@@ -20,10 +20,8 @@ struct MenuHeaderView: View {
                     .foregroundStyle(.orange)
             } else if state.isSyncing {
                 ProgressView().controlSize(.small)
-            } else if let last = state.lastSyncedAt {
-                Text(last, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            } else {
+                SyncedLabel(date: state.lastSyncedAt)
             }
             Button {
                 Task { await SyncManager.shared.syncAll() }
@@ -33,6 +31,13 @@ struct MenuHeaderView: View {
             .buttonStyle(.borderless)
             .help("Refresh all")
             .disabled(state.isSyncing)
+            Button {
+                MiniWindowController.shared.hide()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("Close mini window")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

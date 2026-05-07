@@ -17,27 +17,29 @@ struct FooterBarSection: View {
     var body: some View {
         HStack(spacing: 6) {
             commitButton
-            scmIconButton(
-                icon: "arrow.down",
+            IconButton(
+                systemName: "arrow.down",
                 help: "Pull (fast-forward)",
+                variant: .outline,
                 badge: repo.behind,
-                inFlight: pullInFlight,
-                disabled: pullInFlight || repo.behind == 0
+                inFlight: pullInFlight
             ) { Task { await runPull() } }
-            scmIconButton(
-                icon: "arrow.up",
+            .disabled(pullInFlight || repo.behind == 0)
+            IconButton(
+                systemName: "arrow.up",
                 help: "Push",
+                variant: .outline,
                 badge: repo.ahead,
-                inFlight: pushInFlight,
-                disabled: pushInFlight || repo.ahead == 0
+                inFlight: pushInFlight
             ) { Task { await runPush() } }
-            scmIconButton(
-                icon: "arrow.clockwise",
+            .disabled(pushInFlight || repo.ahead == 0)
+            IconButton(
+                systemName: "arrow.clockwise",
                 help: "Fetch / sync",
-                badge: 0,
-                inFlight: state.isSyncing,
-                disabled: state.isSyncing
+                variant: .outline,
+                inFlight: state.isSyncing
             ) { Task { await SyncManager.shared.syncRepo(id: repo.id) } }
+            .disabled(state.isSyncing)
             Spacer(minLength: 6)
         }
         .padding(.horizontal, DT.Spacing.windowPaddingHorizontal)
@@ -82,21 +84,6 @@ struct FooterBarSection: View {
                 onAfterCommit: onAfterAction
             )
         }
-    }
-
-    private func scmIconButton(icon: String,
-                               help: String,
-                               badge: Int,
-                               inFlight: Bool,
-                               disabled: Bool,
-                               action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            SCMIconButtonLabel(icon: icon, badge: badge, inFlight: inFlight)
-        }
-        .buttonStyle(SCMIconButtonStyle())
-        .disabled(disabled)
-        .help(help)
-        .pointingHand()
     }
 
     private func runPush() async {

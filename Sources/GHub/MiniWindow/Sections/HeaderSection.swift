@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct HeaderSection: View {
+    @EnvironmentObject var state: AppState
+
     let selected: Repo?
     let currentPR: PullRequest?
     let isSyncing: Bool
@@ -26,16 +28,25 @@ struct HeaderSection: View {
                     .scaleEffect(0.7)
                     .frame(width: 16, height: 16)
             }
-            Group {
-                if let pr = currentPR {
-                    StatePill(kind: .pr(pr))
-                } else if selected != nil {
-                    StatePill(kind: .noPR)
+
+            // State pill
+            // Group {
+            //     if let pr = currentPR {
+            //         StatePill(kind: .pr(pr))
+            //     } else if selected != nil {
+            //         StatePill(kind: .noPR)
+            //     }
+            // }
+            // .matchedGeometryEffect(id: "miniWindow.statePill", in: namespace)
+
+
+            HStack(alignment: .center, spacing: 2) {
+                SyncedLabel(date: state.lastSyncedAt)
+                    .padding(.trailing, 6)
+                if selected != nil {
+                    ToggleModeButton(minified: false, action: onToggleMode)
                 }
-            }
-            .matchedGeometryEffect(id: "miniWindow.statePill", in: namespace)
-            if selected != nil {
-                ToggleModeButton(minified: false, action: onToggleMode)
+                CloseMiniButton()
             }
         }
         .padding(.vertical, DT.Spacing.windowPaddingVertical)

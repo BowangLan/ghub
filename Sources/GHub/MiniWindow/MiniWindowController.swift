@@ -75,6 +75,10 @@ final class MiniWindowController {
         if let p = panel, p.isVisible { p.orderOut(nil) } else { show() }
     }
 
+    func hide() {
+        panel?.orderOut(nil)
+    }
+
     func isVisible() -> Bool { panel?.isVisible ?? false }
 
     // MARK: - Mode <-> window size

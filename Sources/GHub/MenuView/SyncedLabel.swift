@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 struct SyncedLabel: View {
-    let repo: Repo
+    let date: Date?
 
     private static let formatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -12,9 +12,9 @@ struct SyncedLabel: View {
 
     var body: some View {
         Group {
-            if let last = repo.lastSyncedAt {
+            if let date {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text("Synced \(Self.formatter.localizedString(for: last, relativeTo: context.date))")
+                    Text("Synced \(Self.formatter.localizedString(for: date, relativeTo: context.date))")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)

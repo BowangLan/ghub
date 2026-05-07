@@ -66,6 +66,7 @@ struct MiniRepoCompactView: View {
                 .frame(width: 96)
 
             ToggleModeButton(minified: true, action: onToggleMode)
+            CloseMiniButton()
         }
     }
 
@@ -145,30 +146,23 @@ struct CompactCIBar: View {
 struct ToggleModeButton: View {
     let minified: Bool
     let action: () -> Void
-    @State private var hovered = false
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: minified
-                  ? "arrow.up.left.and.arrow.down.right"
-                  : "arrow.down.right.and.arrow.up.left")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(hovered ? .primary : .secondary)
-                .frame(width: 18, height: 18)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(hovered ? DT.Color.surfaceHover : Color.clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(hovered ? DT.Color.border : Color.clear, lineWidth: 0.5)
-                )
-                .contentShape(Rectangle())
+        IconButton(
+            systemName: minified
+                ? "arrow.up.left.and.arrow.down.right"
+                : "arrow.down.right.and.arrow.up.left",
+            help: minified ? "Expand" : "Compact",
+            size: .sm,
+            action: action
+        )
+    }
+}
+
+struct CloseMiniButton: View {
+    var body: some View {
+        IconButton(systemName: "xmark", help: "Close", size: .sm) {
+            MiniWindowController.shared.hide()
         }
-        .buttonStyle(.plain)
-        .pointingHand()
-        .onHover { hovered = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovered)
-        .help(minified ? "Expand" : "Compact")
     }
 }
