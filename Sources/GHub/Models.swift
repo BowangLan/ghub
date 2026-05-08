@@ -20,6 +20,7 @@ struct Repo: Identifiable, Hashable, Sendable {
     var behind: Int
     var openPRCount: Int
     var failingCheckCount: Int
+    var pendingCheckCount: Int
 
     var slug: String? {
         if let owner, let repoName { return "\(owner)/\(repoName)" }

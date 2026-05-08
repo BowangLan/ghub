@@ -33,6 +33,28 @@ struct SettingsView: View {
                 }
                 .disabled(state.isSyncing)
             }
+            Section {
+                Toggle("Auto-monitor running CI", isOn: $state.ciMonitorEnabled)
+                Stepper(value: $state.ciMonitorIntervalSeconds, in: 10...300, step: 5) {
+                    HStack {
+                        Text("Poll interval")
+                        Spacer()
+                        Text("\(state.ciMonitorIntervalSeconds)s")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                .disabled(!state.ciMonitorEnabled)
+                if state.ciMonitoringActive {
+                    Text("Watching \(state.ciMonitoringRepoIDs.count) repo\(state.ciMonitoringRepoIDs.count == 1 ? "" : "s") with running checks.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("CI Monitor")
+            } footer: {
+                Text("When any tracked PR has a running check, GHub re-fetches its PRs at this faster cadence until the checks settle. Falls back to the regular refresh interval otherwise.")
+            }
             Section("Tools") {
                 LabeledContent("git", value: GitClient.bin)
                 LabeledContent("gh", value: GHClient.bin ?? "Not installed (brew install gh)")

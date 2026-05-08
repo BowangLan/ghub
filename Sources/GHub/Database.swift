@@ -76,7 +76,8 @@ actor Database {
           ahead INTEGER NOT NULL DEFAULT 0,
           behind INTEGER NOT NULL DEFAULT 0,
           open_pr_count INTEGER NOT NULL DEFAULT 0,
-          failing_check_count INTEGER NOT NULL DEFAULT 0
+          failing_check_count INTEGER NOT NULL DEFAULT 0,
+          pending_check_count INTEGER NOT NULL DEFAULT 0
         );
         """)
         try addColumnIfMissing(
@@ -84,6 +85,12 @@ actor Database {
             table: "repos",
             column: "pr_filter_query",
             definition: "TEXT NOT NULL DEFAULT '\(Repo.defaultPRFilterQuery)'"
+        )
+        try addColumnIfMissing(
+            db,
+            table: "repos",
+            column: "pending_check_count",
+            definition: "INTEGER NOT NULL DEFAULT 0"
         )
         try execRaw(db, "UPDATE repos SET pr_filter_query = '\(Repo.defaultPRFilterQuery)' WHERE pr_filter_query = '';")
         try execRaw(db, """
@@ -250,7 +257,8 @@ actor Database {
             id: id, path: path, name: name, owner: nil, repoName: nil, defaultBranch: nil,
             prFilterQuery: Repo.defaultPRFilterQuery, addedAt: now, lastSyncedAt: nil, syncEnabled: true,
             currentBranch: nil, isDirty: false, untrackedCount: 0,
-            ahead: 0, behind: 0, openPRCount: 0, failingCheckCount: 0
+            ahead: 0, behind: 0, openPRCount: 0, failingCheckCount: 0,
+            pendingCheckCount: 0
         )
     }
 
@@ -270,7 +278,8 @@ actor Database {
         let sql = """
         SELECT id, path, name, owner, repo_name, default_branch, pr_filter_query,
                added_at, last_synced_at, sync_enabled, current_branch, is_dirty,
-               untracked_count, ahead, behind, open_pr_count, failing_check_count
+               untracked_count, ahead, behind, open_pr_count, failing_check_count,
+               pending_check_count
         FROM repos ORDER BY name COLLATE NOCASE;
         """
         let stmt = try prepare(sql)
@@ -294,7 +303,8 @@ actor Database {
                 ahead: intCol(stmt, 13),
                 behind: intCol(stmt, 14),
                 openPRCount: intCol(stmt, 15),
-                failingCheckCount: intCol(stmt, 16)
+                failingCheckCount: intCol(stmt, 16),
+                pendingCheckCount: intCol(stmt, 17)
             ))
         }
         return out
@@ -316,15 +326,33 @@ actor Database {
         behind: Int,
         openPRCount: Int,
         failingCheckCount: Int,
+        pendingCheckCount: Int,
         lastSyncedAt: Date
     ) throws {
         try runStmt("""
             UPDATE repos SET
               current_branch = ?, is_dirty = ?, untracked_count = ?,
               ahead = ?, behind = ?, open_pr_count = ?, failing_check_count = ?,
-              last_synced_at = ?
+              pending_check_count = ?, last_synced_at = ?
             WHERE id = ?;
-        """, [currentBranch, isDirty, untrackedCount, ahead, behind, openPRCount, failingCheckCount, lastSyncedAt, id])
+        """, [currentBranch, isDirty, untrackedCount, ahead, behind, openPRCount, failingCheckCount, pendingCheckCount, lastSyncedAt, id])
+    }
+
+    /// Lighter-weight update used by CI monitoring: only PR/check counts and
+    /// last-synced. Leaves git status fields alone.
+    func updateRepoPRCounts(
+        id: String,
+        openPRCount: Int,
+        failingCheckCount: Int,
+        pendingCheckCount: Int,
+        lastSyncedAt: Date
+    ) throws {
+        try runStmt("""
+            UPDATE repos SET
+              open_pr_count = ?, failing_check_count = ?,
+              pending_check_count = ?, last_synced_at = ?
+            WHERE id = ?;
+        """, [openPRCount, failingCheckCount, pendingCheckCount, lastSyncedAt, id])
     }
 
     // MARK: - Branches / Commits / PRs / Checks

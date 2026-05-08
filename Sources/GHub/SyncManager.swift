@@ -108,6 +108,7 @@ final class SyncManager {
             let ahead = cur?.ahead ?? 0
             let behind = cur?.behind ?? 0
             let failing = checks.reduce(into: 0) { acc, c in if c.isFailing { acc += 1 } }
+            let pending = checks.reduce(into: 0) { acc, c in if c.isPending { acc += 1 } }
 
             try await Database.shared.updateRepoMetadata(
                 id: repo.id, owner: owner, repoName: name, defaultBranch: defaultBranch
@@ -123,10 +124,38 @@ final class SyncManager {
                 ahead: ahead, behind: behind,
                 openPRCount: prs.count,
                 failingCheckCount: failing,
+                pendingCheckCount: pending,
                 lastSyncedAt: Date()
             )
         } catch {
             // Best effort: keep last known state on failure.
         }
+    }
+
+    /// Refresh ONLY the open PRs and CI checks for a repo. Skips git work.
+    /// Used by `CIMonitor` to poll PR status faster than the regular sync.
+    /// Returns `true` if at least one check is still pending after refresh.
+    @discardableResult
+    nonisolated static func refreshPRsOnly(repo: Repo) async -> Bool {
+        guard let owner = repo.owner, let name = repo.repoName, GHClient.isAvailable else {
+            return false
+        }
+        let slug = "\(owner)/\(name)"
+        guard let result = try? await GHClient.fetchPRsAndChecks(
+            slug: slug, repoID: repo.id, searchQuery: repo.prFilterQuery
+        ) else { return repo.pendingCheckCount > 0 }
+        let prs = result.0
+        let checks = result.1
+        let failing = checks.reduce(into: 0) { acc, c in if c.isFailing { acc += 1 } }
+        let pending = checks.reduce(into: 0) { acc, c in if c.isPending { acc += 1 } }
+        try? await Database.shared.replacePRs(repoID: repo.id, prs: prs, checks: checks)
+        try? await Database.shared.updateRepoPRCounts(
+            id: repo.id,
+            openPRCount: prs.count,
+            failingCheckCount: failing,
+            pendingCheckCount: pending,
+            lastSyncedAt: Date()
+        )
+        return pending > 0
     }
 }

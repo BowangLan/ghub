@@ -33,6 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await SyncManager.shared.start()
             AppState.shared.ensureValidSelection()
             AppState.shared.applyWatcher()
+            if AppState.shared.ciMonitorEnabled {
+                CIMonitor.shared.start()
+            }
         }
     }
 }
