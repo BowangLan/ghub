@@ -11,35 +11,46 @@ struct StatsGridSection: View {
         let del = st.deletions + us.deletions
 
         return HStack(alignment: .top, spacing: 12) {
-            StatColumn(value: "\(totalChanged)",
+            StatColumn(value: totalChanged,
                        label: "changed",
                        color: .primary,
                        muted: totalChanged == 0)
-            StatColumn(value: "+\(ins)",
+            StatColumn(value: ins,
+                       prefix: "+",
                        label: "additions",
                        color: DT.Color.emerald,
-                       muted: ins == 0)
-            StatColumn(value: "-\(del)",
+                       muted: ins == 0,
+                       direction: .up)
+            StatColumn(value: del,
+                       prefix: "-",
                        label: "deletions",
                        color: DT.Color.red,
-                       muted: del == 0)
+                       muted: del == 0,
+                       direction: .down)
         }
     }
 }
 
 struct StatColumn: View {
-    let value: String
+    let value: Int
+    var prefix: String = ""
     let label: String
     let color: Color
     let muted: Bool
+    var direction: AnimatedNumberDirection = .automatic
 
     var body: some View {
         let valueColor: Color = muted ? Color.primary.opacity(0.30) : color
         return VStack(alignment: .leading, spacing: 2) {
-            Text(value)
+            AnimatedNumberText(
+                value,
+                prefix: prefix,
+                color: valueColor,
+                flashColor: muted ? Color.primary.opacity(0.65) : color,
+                direction: direction
+            )
                 .font(.system(size: 22, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(valueColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(label)
