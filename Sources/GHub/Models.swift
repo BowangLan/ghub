@@ -93,3 +93,10 @@ struct CICheck: Identifiable, Hashable, Sendable {
         (conclusion?.uppercased() == "SUCCESS") || (conclusion?.uppercased() == "NEUTRAL") || (conclusion?.uppercased() == "SKIPPED")
     }
 }
+
+struct CIWatchTarget: Identifiable, Hashable, Sendable {
+    var id: String { "\(repoID)#\(prNumber)" }
+    let repoID: String
+    let slug: String
+    let prNumber: Int
+}

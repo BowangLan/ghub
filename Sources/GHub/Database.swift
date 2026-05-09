@@ -462,6 +462,24 @@ actor Database {
         }
     }
 
+    func replaceChecks(repoID: String, prNumber: Int, checks: [CICheck]) throws {
+        try execSync("BEGIN;")
+        do {
+            try runStmt("DELETE FROM ci_checks WHERE repo_id = ? AND pr_number = ?;", [repoID, prNumber])
+            for c in checks {
+                try runStmt("""
+                    INSERT OR REPLACE INTO ci_checks
+                    (repo_id, pr_number, name, status, conclusion, url, completed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                """, [c.repoID, c.prNumber, c.name, c.status, c.conclusion, c.url, c.completedAt])
+            }
+            try execSync("COMMIT;")
+        } catch {
+            try? execSync("ROLLBACK;")
+            throw error
+        }
+    }
+
     func pullRequests(repoID: String) throws -> [PullRequest] {
         let stmt = try prepare("""
             SELECT number, title, state, is_draft, head_branch, base_branch, author, url, created_at, updated_at, merged_at

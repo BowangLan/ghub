@@ -97,4 +97,57 @@ enum GHClient {
         }
         return (prs, checks)
     }
+
+    /// Fetch CI checks for one PR using `gh pr checks`.
+    static func fetchChecks(slug: String, repoID: String, prNumber: Int) async throws -> [CICheck] {
+        guard let bin else { throw ShellError.notFound("gh") }
+        let fields = [
+            "bucket", "completedAt", "link", "name", "state", "workflow"
+        ].joined(separator: ",")
+        let out = try await Shell.run(bin, [
+            "pr", "checks", "\(prNumber)",
+            "--repo", slug,
+            "--json", fields
+        ])
+        if out.status != 0 && out.status != 8 {
+            throw ShellError.nonZeroExit(status: out.status, stderr: out.stderr.isEmpty ? out.stdout : out.stderr)
+        }
+        guard let data = out.stdout.data(using: .utf8),
+              let any = try? JSONSerialization.jsonObject(with: data, options: []),
+              let arr = any as? [[String: Any]]
+        else {
+            return []
+        }
+        return arr.compactMap { item in
+            let name = item["name"] as? String ?? ""
+            if name.isEmpty { return nil }
+            let bucket = (item["bucket"] as? String ?? "").lowercased()
+            let state = item["state"] as? String ?? ""
+            let conclusion: String?
+            switch bucket {
+            case "pass":
+                conclusion = "SUCCESS"
+            case "fail":
+                conclusion = "FAILURE"
+            case "cancel":
+                conclusion = "CANCELLED"
+            case "skipping":
+                conclusion = "SKIPPED"
+            case "pending":
+                conclusion = nil
+            default:
+                conclusion = state.isEmpty ? nil : state.uppercased()
+            }
+            let status = bucket == "pending" ? state.uppercased() : "COMPLETED"
+            return CICheck(
+                repoID: repoID,
+                prNumber: prNumber,
+                name: name,
+                status: status,
+                conclusion: conclusion,
+                url: item["link"] as? String,
+                completedAt: (item["completedAt"] as? String).flatMap(ISODate.parse)
+            )
+        }
+    }
 }

@@ -12,7 +12,7 @@ struct MenuFooterView: View {
                 .disabled(state.isSyncing)
             Button("Mini") { MiniWindowController.shared.toggle() }
             if state.ciMonitoringActive {
-                CIMonitorBadge(count: state.ciMonitoringRepoIDs.count)
+                CIMonitorBadge(count: state.ciMonitoringPRs.count)
             }
             Spacer()
             SettingsLink { Text("Settings…") }
@@ -45,6 +45,6 @@ private struct CIMonitorBadge: View {
         .background(
             Capsule().fill(Color.secondary.opacity(0.12))
         )
-        .help("Auto-monitoring \(count) repo\(count == 1 ? "" : "s") with running checks")
+        .help("Auto-monitoring \(count) PR\(count == 1 ? "" : "s") with running checks")
     }
 }

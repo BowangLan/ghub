@@ -100,7 +100,7 @@ final class RepoWatcher: @unchecked Sendable {
         let id = currentRepoID
         let work = DispatchWorkItem {
             guard let id else { return }
-            Task { await SyncManager.shared.syncRepo(id: id) }
+            Task { await SyncManager.shared.syncRepoLocalOnly(id: id) }
         }
         pendingSync = work
         queue.asyncAfter(deadline: .now() + .milliseconds(200), execute: work)

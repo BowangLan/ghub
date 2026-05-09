@@ -35,25 +35,22 @@ struct SettingsView: View {
             }
             Section {
                 Toggle("Auto-monitor running CI", isOn: $state.ciMonitorEnabled)
-                Stepper(value: $state.ciMonitorIntervalSeconds, in: 10...300, step: 5) {
-                    HStack {
-                        Text("Poll interval")
-                        Spacer()
-                        Text("\(state.ciMonitorIntervalSeconds)s")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
+                HStack {
+                    Text("Hot refresh interval")
+                    Spacer()
+                    Text("15s")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
-                .disabled(!state.ciMonitorEnabled)
                 if state.ciMonitoringActive {
-                    Text("Watching \(state.ciMonitoringRepoIDs.count) repo\(state.ciMonitoringRepoIDs.count == 1 ? "" : "s") with running checks.")
+                    Text("Watching \(state.ciMonitoringPRs.count) PR\(state.ciMonitoringPRs.count == 1 ? "" : "s") with running checks.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("CI Monitor")
             } footer: {
-                Text("When any tracked PR has a running check, GHub re-fetches its PRs at this faster cadence until the checks settle. Falls back to the regular refresh interval otherwise.")
+                Text("When any tracked PR has a running check, GHub refreshes that PR's checks every 15 seconds with `gh pr checks` until the checks settle. Falls back to the regular refresh interval otherwise.")
             }
             Section("Tools") {
                 LabeledContent("git", value: GitClient.bin)

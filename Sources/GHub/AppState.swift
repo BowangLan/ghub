@@ -9,7 +9,6 @@ final class AppState: ObservableObject {
     private static let selectedRepoIDKey = "selectedRepoID"
     private static let miniMinifiedKey = "MiniWindow.minified"
     private static let ciMonitorEnabledKey = "ciMonitorEnabled"
-    private static let ciMonitorIntervalKey = "ciMonitorIntervalSeconds"
 
     @Published var repos: [Repo] = [] {
         didSet { applyWatcher() }
@@ -44,14 +43,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    @Published var ciMonitorIntervalSeconds: Int = AppState.loadCIMonitorInterval() {
-        didSet {
-            UserDefaults.standard.set(ciMonitorIntervalSeconds, forKey: Self.ciMonitorIntervalKey)
-            CIMonitor.shared.reschedule()
-        }
-    }
-
-    @Published var ciMonitoringRepoIDs: Set<String> = []
+    @Published var ciMonitoringPRs: Set<CIWatchTarget> = []
 
     private init() {}
 
@@ -81,18 +73,13 @@ final class AppState: ObservableObject {
         return UserDefaults.standard.bool(forKey: ciMonitorEnabledKey)
     }
 
-    private static func loadCIMonitorInterval() -> Int {
-        let v = UserDefaults.standard.integer(forKey: ciMonitorIntervalKey)
-        return v == 0 ? 30 : v
-    }
-
     var totalDirty: Int { repos.filter(\.isDirty).count }
     var totalAhead: Int { repos.reduce(0) { $0 + $1.ahead } }
     var totalBehind: Int { repos.reduce(0) { $0 + $1.behind } }
     var totalOpenPRs: Int { repos.reduce(0) { $0 + $1.openPRCount } }
     var totalFailing: Int { repos.reduce(0) { $0 + $1.failingCheckCount } }
     var totalPending: Int { repos.reduce(0) { $0 + $1.pendingCheckCount } }
-    var ciMonitoringActive: Bool { !ciMonitoringRepoIDs.isEmpty }
+    var ciMonitoringActive: Bool { !ciMonitoringPRs.isEmpty }
 
     var menuBarSymbol: String {
         if isSyncing { return "arrow.triangle.2.circlepath" }

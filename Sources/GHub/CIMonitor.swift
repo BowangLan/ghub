@@ -1,16 +1,17 @@
 import Foundation
 
-/// Polls open PRs across all tracked repos that have at least one pending CI
-/// check, on a faster cadence than the regular `SyncManager` timer. Idle when
-/// nothing is pending — only the `SyncManager` is left to discover the first
-/// run-on signal, after which `CIMonitor` takes over until checks settle.
+/// Polls hot repo+PR pairs that have at least one pending CI check, on a
+/// 15-second cadence. Idle when nothing is pending — only the regular
+/// `SyncManager` sync discovers the first running signal, after which this
+/// monitor refreshes those PR checks until they settle.
 @MainActor
 final class CIMonitor {
     @MainActor static let shared = CIMonitor()
+    private static let intervalSeconds = 15
 
     private var task: Task<Void, Never>?
 
-    @Published private(set) var monitoringRepoIDs: Set<String> = []
+    @Published private(set) var hotPRs: Set<CIWatchTarget> = []
 
     private init() {}
 
@@ -19,8 +20,7 @@ final class CIMonitor {
         task = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tick()
-                let secs = AppState.shared.ciMonitorIntervalSeconds
-                let nanos = UInt64(max(10, secs)) * 1_000_000_000
+                let nanos = UInt64(Self.intervalSeconds) * 1_000_000_000
                 try? await Task.sleep(nanoseconds: nanos)
             }
         }
@@ -29,8 +29,8 @@ final class CIMonitor {
     func stop() {
         task?.cancel()
         task = nil
-        monitoringRepoIDs = []
-        AppState.shared.ciMonitoringRepoIDs = []
+        hotPRs = []
+        AppState.shared.ciMonitoringPRs = []
     }
 
     /// Restart the loop so a changed interval / enable flag takes effect on the
@@ -45,30 +45,53 @@ final class CIMonitor {
 
     private func tick() async {
         guard AppState.shared.ciMonitorEnabled, GHClient.isAvailable else {
-            if !monitoringRepoIDs.isEmpty {
-                monitoringRepoIDs = []
-                AppState.shared.ciMonitoringRepoIDs = []
+            if !hotPRs.isEmpty {
+                hotPRs = []
+                AppState.shared.ciMonitoringPRs = []
             }
             return
         }
 
-        let candidates = AppState.shared.repos.filter {
-            $0.syncEnabled && $0.pendingCheckCount > 0 && $0.slug != nil
+        let discovered = await discoverHotPRs()
+        if hotPRs != discovered {
+            hotPRs = discovered
+            AppState.shared.ciMonitoringPRs = discovered
         }
-        let candidateIDs = Set(candidates.map(\.id))
-        if monitoringRepoIDs != candidateIDs {
-            monitoringRepoIDs = candidateIDs
-            AppState.shared.ciMonitoringRepoIDs = candidateIDs
-        }
-        guard !candidates.isEmpty else { return }
+        guard !discovered.isEmpty else { return }
 
-        await withTaskGroup(of: Void.self) { group in
-            for repo in candidates {
+        var stillHot = Set<CIWatchTarget>()
+        await withTaskGroup(of: (CIWatchTarget, Bool).self) { group in
+            for target in discovered {
                 group.addTask {
-                    _ = await SyncManager.refreshPRsOnly(repo: repo)
+                    let isPending = await SyncManager.refreshChecksOnly(target: target)
+                    return (target, isPending)
+                }
+            }
+            for await (target, isPending) in group {
+                if isPending {
+                    stillHot.insert(target)
                 }
             }
         }
+        if hotPRs != stillHot {
+            hotPRs = stillHot
+            AppState.shared.ciMonitoringPRs = stillHot
+        }
         await SyncManager.shared.reload()
+    }
+
+    private func discoverHotPRs() async -> Set<CIWatchTarget> {
+        var targets = Set<CIWatchTarget>()
+        for repo in AppState.shared.repos where repo.syncEnabled {
+            guard let slug = repo.slug else { continue }
+            let prs = (try? await Database.shared.pullRequests(repoID: repo.id)) ?? []
+            for pr in prs {
+                let checks = (try? await Database.shared.checks(repoID: repo.id, prNumber: pr.number)) ?? []
+                if checks.contains(where: \.isPending) {
+                    targets.insert(CIWatchTarget(repoID: repo.id, slug: slug, prNumber: pr.number))
+                }
+            }
+        }
+        return targets
     }
 }
