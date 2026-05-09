@@ -67,7 +67,7 @@ struct MiniRepoCompactView: View {
                 Text("-\(del)")
                     .foregroundStyle(del == 0 ? Color.primary.opacity(0.30) : DT.Color.red)
             }
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: 16, weight: .medium))
             .monospacedDigit()
             .fixedSize()
 

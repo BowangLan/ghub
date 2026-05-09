@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MiniRepoView: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var dock: MiniWindowDockState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var modeNamespace
 
@@ -9,13 +10,27 @@ struct MiniRepoView: View {
     @State private var currentPR: PullRequest?
     @State private var currentChecks: [CICheck] = []
     @State private var loadToken: UUID = UUID()
+    @State private var hoverTask: Task<Void, Never>?
 
     private var selected: Repo? { state.selectedRepo }
+
+    /// `true` when the panel is in dock-badge mode (minified + snapped to a
+    /// screen edge). Drives shell asymmetry, border suppression, and the
+    /// resting <-> peeked layout branch.
+    private var isBadge: Bool { state.miniMinified && dock.isDocked }
+
+    /// `true` when the badge is dwelt-on long enough that the controller has
+    /// peeked the window outward.
+    private var isPeeked: Bool { isBadge && dock.hovered }
 
     var body: some View {
         Group {
             if let repo = selected, state.miniMinified {
-                compactBody(repo: repo)
+                if isBadge, !isPeeked {
+                    restingBadge(repo: repo)
+                } else {
+                    compactBody(repo: repo)
+                }
             } else if let repo = selected {
                 expandedBody(repo: repo)
             } else {
@@ -27,24 +42,36 @@ struct MiniRepoView: View {
             maxHeight: state.miniMinified ? nil : .infinity,
             alignment: .topLeading
         )
-        .background(
-            RoundedRectangle(cornerRadius: MiniWindowMetrics.shellCornerRadius, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
+        .modifier(
+            MiniWindowShell(
+                dockEdge: isBadge ? dock.edge : .none,
+                cornerRadius: MiniWindowMetrics.shellCornerRadius
+            )
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: MiniWindowMetrics.shellCornerRadius, style: .continuous)
-                .stroke(DT.Color.border, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: MiniWindowMetrics.shellCornerRadius, style: .continuous))
         .frame(
-            minWidth: MiniWindowMetrics.minWidth,
+            minWidth: isBadge ? MiniWindowMetrics.dockedRestingWidth : MiniWindowMetrics.minWidth,
             minHeight: state.miniMinified ? nil : MiniWindowMetrics.expandedDefaultSize.height,
             maxHeight: state.miniMinified ? nil : .infinity
         )
+        .contentShape(Rectangle())
+        .onHover { isOver in handleHover(isOver) }
         .task(id: reloadKey) { await reload() }
     }
 
     // MARK: - Layouts
+
+    @ViewBuilder
+    private func restingBadge(repo: Repo) -> some View {
+        MiniRepoDockedRestingView(
+            repo: repo,
+            pr: currentPR,
+            checks: currentChecks,
+            dockEdge: dock.edge,
+            diff: diff
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .transition(.opacity)
+    }
 
     @ViewBuilder
     private func compactBody(repo: Repo) -> some View {
@@ -109,6 +136,33 @@ struct MiniRepoView: View {
                 .padding(.horizontal, DT.Spacing.h)
                 .padding(.bottom, 16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - Hover (badge peek)
+
+    private func handleHover(_ isOver: Bool) {
+        guard isBadge else {
+            // Outside badge mode, ensure peek state is cleared.
+            if dock.hovered { dock.hovered = false }
+            hoverTask?.cancel()
+            hoverTask = nil
+            return
+        }
+        hoverTask?.cancel()
+        let delay = isOver
+            ? MiniWindowMetrics.dockHoverInDelay
+            : MiniWindowMetrics.dockHoverOutDelay
+        hoverTask = Task { @MainActor in
+            let nanos = UInt64(delay * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+            if Task.isCancelled { return }
+            if !isOver, MiniWindowController.shared.shouldSuppressDockHoverExit() {
+                return
+            }
+            if dock.hovered != isOver {
+                dock.hovered = isOver
+            }
         }
     }
 

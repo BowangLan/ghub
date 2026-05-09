@@ -24,7 +24,7 @@ enum MiniWindowMetrics {
     /// Mode-toggle animation duration. Both the SwiftUI element animation
     /// (`MiniRepoView.toggleMode()`) and the display-link-driven NSPanel
     /// resize (`WindowResizeAnimator`) reference this so they stay in lockstep.
-    static let modeAnimationDuration: TimeInterval = 0.28
+    static let modeAnimationDuration: TimeInterval = 0.30
 
     /// Drag-end snap-to-edge animation duration.
     static let edgeSnapAnimationDuration: TimeInterval = 0.22
@@ -36,4 +36,32 @@ enum MiniWindowMetrics {
 
     /// Rounded outer-shell radius shared by both modes.
     static let shellCornerRadius: CGFloat = 14
+
+    // MARK: - Edge-docked (badge) mode
+
+    /// Width of the docked badge while resting (not hovered). Narrower than
+    /// `minWidth` because the dock state intentionally bypasses the global
+    /// minimum to feel like a tab/badge sticking out of the screen edge.
+    static let dockedRestingWidth: CGFloat = 200
+
+    /// Height of the docked badge while resting.
+    static let dockedRestingHeight: CGFloat = 72
+
+    /// Width once the badge is hovered and peeked out. Wide enough for the
+    /// existing compact info+actions layout.
+    static let dockedPeekedWidth: CGFloat = 320
+
+    /// Height of the peeked panel.
+    static let dockedPeekedHeight: CGFloat = 132
+
+    /// Animation duration for the resting <-> peeked transition.
+    static let dockPeekAnimationDuration: TimeInterval = 0.3
+
+    /// Hover dwell required before the badge peeks out — avoids twitch when
+    /// the cursor merely traverses the badge.
+    static let dockHoverInDelay: TimeInterval = 0.06
+
+    /// Grace period on hover-exit before the badge collapses, so a short
+    /// excursion (e.g. clicking inside) doesn't snap it shut.
+    static let dockHoverOutDelay: TimeInterval = 0.18
 }
