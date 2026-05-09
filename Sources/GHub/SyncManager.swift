@@ -90,41 +90,24 @@ final class SyncManager {
                 defaultBranch = await GitClient.defaultBranch(path: repo.path)
             }
 
-            var prs: [PullRequest] = []
-            var checks: [CICheck] = []
-            if let owner, let name, GHClient.isAvailable {
-                let slug = "\(owner)/\(name)"
-                if let result = try? await GHClient.fetchPRsAndChecks(
-                    slug: slug,
-                    repoID: repo.id,
-                    searchQuery: repo.prFilterQuery
-                ) {
-                    prs = result.0
-                    checks = result.1
-                }
-            }
-
             let cur = branches.first(where: { $0.isCurrent })
             let ahead = cur?.ahead ?? 0
             let behind = cur?.behind ?? 0
-            let failing = checks.reduce(into: 0) { acc, c in if c.isFailing { acc += 1 } }
-            let pending = checks.reduce(into: 0) { acc, c in if c.isPending { acc += 1 } }
 
             try await Database.shared.updateRepoMetadata(
                 id: repo.id, owner: owner, repoName: name, defaultBranch: defaultBranch
             )
             try await Database.shared.replaceBranches(repoID: repo.id, branches: branches)
             try await Database.shared.replaceCommits(repoID: repo.id, commits: commits)
-            try await Database.shared.replacePRs(repoID: repo.id, prs: prs, checks: checks)
             try await Database.shared.updateRepoStatus(
                 id: repo.id,
                 currentBranch: status.currentBranch,
                 isDirty: status.isDirty,
                 untrackedCount: status.untrackedCount,
                 ahead: ahead, behind: behind,
-                openPRCount: prs.count,
-                failingCheckCount: failing,
-                pendingCheckCount: pending,
+                openPRCount: repo.openPRCount,
+                failingCheckCount: repo.failingCheckCount,
+                pendingCheckCount: repo.pendingCheckCount,
                 lastSyncedAt: Date()
             )
         } catch {
@@ -137,25 +120,6 @@ final class SyncManager {
     /// Returns `true` if at least one check is still pending after refresh.
     @discardableResult
     nonisolated static func refreshPRsOnly(repo: Repo) async -> Bool {
-        guard let owner = repo.owner, let name = repo.repoName, GHClient.isAvailable else {
-            return false
-        }
-        let slug = "\(owner)/\(name)"
-        guard let result = try? await GHClient.fetchPRsAndChecks(
-            slug: slug, repoID: repo.id, searchQuery: repo.prFilterQuery
-        ) else { return repo.pendingCheckCount > 0 }
-        let prs = result.0
-        let checks = result.1
-        let failing = checks.reduce(into: 0) { acc, c in if c.isFailing { acc += 1 } }
-        let pending = checks.reduce(into: 0) { acc, c in if c.isPending { acc += 1 } }
-        try? await Database.shared.replacePRs(repoID: repo.id, prs: prs, checks: checks)
-        try? await Database.shared.updateRepoPRCounts(
-            id: repo.id,
-            openPRCount: prs.count,
-            failingCheckCount: failing,
-            pendingCheckCount: pending,
-            lastSyncedAt: Date()
-        )
-        return pending > 0
+        false
     }
 }

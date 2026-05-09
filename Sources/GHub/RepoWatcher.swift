@@ -103,7 +103,7 @@ final class RepoWatcher: @unchecked Sendable {
             Task { await SyncManager.shared.syncRepo(id: id) }
         }
         pendingSync = work
-        queue.asyncAfter(deadline: .now() + .milliseconds(500), execute: work)
+        queue.asyncAfter(deadline: .now() + .milliseconds(200), execute: work)
     }
 
     private func teardown() {

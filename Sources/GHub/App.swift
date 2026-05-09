@@ -29,7 +29,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         MiniWindowController.shared.show()
         Task {
-            AppState.shared.ghAuthenticated = await GHClient.authStatus()
             await SyncManager.shared.start()
             AppState.shared.ensureValidSelection()
             AppState.shared.applyWatcher()
