@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct MiniRepoCompactView: View {
@@ -17,40 +16,15 @@ struct MiniRepoCompactView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 3) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(repo.name)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        // pillView
-                        //     .matchedGeometryEffect(id: "miniWindow.statePill", in: namespace)
-                    }
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.tertiary)
-                        Text(repo.currentBranch ?? "—")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer(minLength: 4)
-                        if let pr {
-                            Button {
-                                if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
-                            } label: {
-                                Text("#\(pr.number)")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .pointingHand()
-                            .help("Open PR")
-                        }
+                ZStack(alignment: .bottomTrailing) {
+                    RepoSelectorView(repo: repo, style: .compact)
+                        .padding(.trailing, pr == nil ? 0 : 52)
+                    if let pr {
+                        PRReferenceView(pr: pr, style: .compact)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
 
                 Spacer(minLength: 6)
 

@@ -12,7 +12,7 @@ struct MiniRepoDockedRestingView: View {
     var body: some View {
         let stats = diffStats
 
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .center, spacing: 8) {
                 if dockEdge == .right {
                     statusDot
@@ -28,14 +28,17 @@ struct MiniRepoDockedRestingView: View {
                 alignment: dockEdge == .right ? .leading : .trailing
             )
             .help(tooltip)
+            .layoutPriority(1)
 
             branchLabel
+                .layoutPriority(2)
             diffLabel(insertions: stats.insertions, deletions: stats.deletions)
+                .layoutPriority(1)
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
     }
 
     private var diffStats: (insertions: Int, deletions: Int) {
@@ -49,19 +52,10 @@ struct MiniRepoDockedRestingView: View {
 
     @ViewBuilder
     private var branchLabel: some View {
-        HStack(spacing: 6) {
-            if let branch = repo.currentBranch, !branch.isEmpty {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                    Text(branch)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
+        if let branch = repo.currentBranch, !branch.isEmpty {
+            BranchReferenceView(name: branch, style: .compact, muted: true)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -87,18 +81,7 @@ struct MiniRepoDockedRestingView: View {
                 .truncationMode(.middle)
 
             if let pr {
-                Text("#\(pr.number)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-
-                Text(pr.title)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                PRReferenceView(pr: pr, style: .resting, showTitle: true)
             }
 
             Spacer(minLength: 0)

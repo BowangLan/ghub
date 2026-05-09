@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 struct PRBlockSection: View {
     let pr: PullRequest?
@@ -13,26 +12,11 @@ struct PRBlockSection: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
-                                Image(systemName: "arrow.triangle.pull")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                Button {
-                                    if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
-                                } label: {
-                                    Text("#\(pr.number)")
-                                        .font(.system(size: 13, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(.primary)
-                                }
-                                .buttonStyle(.plain)
-                                .pointingHand()
+                                PRReferenceView(pr: pr, style: .regular)
                                 Image(systemName: "arrow.right")
                                     .font(.system(size: 9, weight: .semibold))
                                     .foregroundStyle(.secondary)
-                                Text(pr.baseBranch)
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                                BranchReferenceView(name: pr.baseBranch, style: .subtle, muted: true)
                             }
                             Text(pulseText(pr: pr))
                                 .font(.system(size: 11))

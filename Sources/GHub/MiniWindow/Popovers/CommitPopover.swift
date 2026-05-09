@@ -13,12 +13,11 @@ struct CommitPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text(repo.currentBranch ?? "—")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                BranchReferenceView(
+                    name: repo.currentBranch ?? "—",
+                    style: .compact,
+                    muted: true
+                )
                 Spacer()
                 Text("\(stagedCount) staged")
                     .font(.system(size: 10, weight: .medium))
