@@ -5,6 +5,11 @@ enum GHClient {
 
     static var isAvailable: Bool { bin != nil }
 
+    struct SquashMergeMessage: Sendable, Equatable {
+        var subject: String
+        var body: String
+    }
+
     static func authStatus() async -> Bool {
         guard let bin else { return false }
         let out = try? await Shell.run(bin, ["auth", "status"])
@@ -150,4 +155,84 @@ enum GHClient {
             )
         }
     }
+
+    /// Build the same default squash message GitHub presents for its default
+    /// squash-merge setting: one commit uses that commit's message; multiple
+    /// commits use the PR title/number plus a commit list.
+    static func defaultSquashMergeMessage(slug: String, prNumber: Int) async throws -> SquashMergeMessage {
+        guard let bin else { throw ShellError.notFound("gh") }
+        let out = try await Shell.run(bin, [
+            "pr", "view", "\(prNumber)",
+            "--repo", slug,
+            "--json", "title,commits"
+        ])
+        if out.status != 0 {
+            throw ShellError.nonZeroExit(status: out.status, stderr: out.stderr.isEmpty ? out.stdout : out.stderr)
+        }
+        let decoder = JSONDecoder()
+        guard let data = out.stdout.data(using: .utf8),
+              let payload = try? decoder.decode(PRMergeMessagePayload.self, from: data)
+        else {
+            return SquashMergeMessage(subject: "Merge pull request #\(prNumber)", body: "")
+        }
+
+        if payload.commits.count == 1, let commit = payload.commits.first {
+            return SquashMergeMessage(
+                subject: commit.messageHeadline.nilIfEmpty ?? payload.title,
+                body: commit.messageBody
+            )
+        }
+
+        let subject = "\(payload.title) (#\(prNumber))"
+        let body = payload.commits
+            .map(\.messageHeadline)
+            .filter { !$0.isEmpty }
+            .map { "* \($0)" }
+            .joined(separator: "\n")
+        return SquashMergeMessage(subject: subject, body: body)
+    }
+
+    static func squashMerge(slug: String, prNumber: Int, subject: String, body: String) async throws {
+        guard let bin else { throw ShellError.notFound("gh") }
+        let bodyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ghub-squash-body-\(UUID().uuidString).txt")
+        try body.write(to: bodyURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: bodyURL) }
+
+        let out = try await Shell.run(bin, [
+            "pr", "merge", "\(prNumber)",
+            "--repo", slug,
+            "--squash",
+            "--subject", subject,
+            "--body-file", bodyURL.path
+        ])
+        if out.status != 0 {
+            throw ShellError.nonZeroExit(status: out.status, stderr: out.stderr.isEmpty ? out.stdout : out.stderr)
+        }
+    }
+}
+
+private struct PRMergeMessagePayload: Decodable {
+    let title: String
+    let commits: [PRCommitMessage]
+}
+
+private struct PRCommitMessage: Decodable {
+    let messageHeadline: String
+    let messageBody: String
+
+    private enum CodingKeys: String, CodingKey {
+        case messageHeadline
+        case messageBody
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        messageHeadline = try c.decodeIfPresent(String.self, forKey: .messageHeadline) ?? ""
+        messageBody = try c.decodeIfPresent(String.self, forKey: .messageBody) ?? ""
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

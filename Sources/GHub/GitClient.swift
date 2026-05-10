@@ -152,6 +152,8 @@ enum GitClient {
         var staged: DiffShortstat
         var unstaged: DiffShortstat
 
+        var hasDelta: Bool { staged.hasDelta || unstaged.hasDelta }
+
         static let empty = WorkingTreeDiff(staged: .empty, unstaged: .empty)
     }
 

@@ -6,6 +6,7 @@ enum AppSoundKind {
     case gitCommit
     case gitPush
     case ciGreen
+    case squashMerge
 
     var resourceName: String {
         switch self {
@@ -17,6 +18,8 @@ enum AppSoundKind {
             return "git-push"
         case .ciGreen:
             return "ci-green"
+        case .squashMerge:
+            return "squash-merge"
         }
     }
 }

@@ -116,7 +116,9 @@ struct MiniRepoView: View {
                 Divider50()
 
                 FooterBarSection(repo: repo,
-                                 stagedCount: diff.staged.filesChanged,
+                                 diff: diff,
+                                 pr: currentPR,
+                                 checks: currentChecks,
                                  onAfterAction: { await reload() })
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

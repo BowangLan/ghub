@@ -3,7 +3,9 @@ import AppKit
 
 struct FooterBarSection: View {
     let repo: Repo
-    let stagedCount: Int
+    let diff: GitClient.WorkingTreeDiff
+    let pr: PullRequest?
+    let checks: [CICheck]
     let onAfterAction: @MainActor () async -> Void
 
     @EnvironmentObject var state: AppState
@@ -13,10 +15,23 @@ struct FooterBarSection: View {
     @State private var commitError: String?
     @State private var pushInFlight: Bool = false
     @State private var pullInFlight: Bool = false
+    @State private var showMerge: Bool = false
+    @State private var mergeSubject: String = ""
+    @State private var mergeBody: String = ""
+    @State private var mergeLoadingDefaults: Bool = false
+    @State private var mergeInFlight: Bool = false
+    @State private var mergeError: String?
+
+    private var stagedCount: Int { diff.staged.filesChanged }
 
     var body: some View {
         HStack(spacing: 6) {
-            commitButton
+            if diff.hasDelta {
+                commitButton
+            }
+            if pr != nil {
+                squashMergeButton
+            }
             IconButton(
                 systemName: "arrow.down",
                 help: "Pull (fast-forward)",
@@ -74,6 +89,71 @@ struct FooterBarSection: View {
         }
     }
 
+    private var squashMergeButton: some View {
+        let enabled = canSquashMerge && !mergeInFlight && !mergeLoadingDefaults
+        return Button {
+            showMerge = true
+            Task { await loadMergeDefaults() }
+        } label: {
+            HStack(spacing: 6) {
+                if mergeInFlight || mergeLoadingDefaults {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.72)
+                } else {
+                    Image(systemName: "arrow.triangle.merge")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                Text("Squash & merge")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: DT.Radius.sm)
+                    .fill(enabled ? DT.Color.emerald : DT.Color.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DT.Radius.sm)
+                    .stroke(enabled ? Color.clear : DT.Color.border, lineWidth: 0.5)
+            )
+            .foregroundStyle(enabled ? AnyShapeStyle(.white) : AnyShapeStyle(.tertiary))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointingHand()
+        .disabled(!enabled)
+        .help(squashMergeHelp)
+        .popover(isPresented: $showMerge, arrowEdge: .top) {
+            SquashMergePopover(
+                pr: pr,
+                subject: $mergeSubject,
+                mergeBody: $mergeBody,
+                loadingDefaults: $mergeLoadingDefaults,
+                inFlight: $mergeInFlight,
+                error: $mergeError,
+                isPresented: $showMerge,
+                canMerge: canSquashMerge,
+                onReloadDefaults: { await loadMergeDefaults(force: true) },
+                onMerge: { await runSquashMerge() }
+            )
+        }
+    }
+
+    private var canSquashMerge: Bool {
+        guard let pr, pr.state.uppercased() == "OPEN", !pr.isDraft, !checks.isEmpty else { return false }
+        return checks.allSatisfy { $0.isSuccess }
+    }
+
+    private var squashMergeHelp: String {
+        guard let pr else { return "No PR for this branch" }
+        if pr.isDraft { return "Draft PRs cannot be merged" }
+        if checks.isEmpty { return "No CI checks loaded" }
+        if checks.contains(where: { $0.isFailing }) { return "Fix failing CI before merging" }
+        if checks.contains(where: { $0.isPending }) { return "Wait for CI to finish" }
+        return "Squash and merge PR #\(pr.number)"
+    }
+
     private func runPush() async {
         guard !pushInFlight else { return }
         pushInFlight = true
@@ -99,5 +179,134 @@ struct FooterBarSection: View {
         } catch {
             NSSound.beep()
         }
+    }
+
+    private func loadMergeDefaults(force: Bool = false) async {
+        guard let pr, let slug = repo.slug else { return }
+        if !force, (!mergeSubject.isEmpty || mergeLoadingDefaults) { return }
+        mergeLoadingDefaults = true
+        mergeError = nil
+        defer { mergeLoadingDefaults = false }
+        do {
+            let message = try await GHClient.defaultSquashMergeMessage(slug: slug, prNumber: pr.number)
+            mergeSubject = message.subject
+            mergeBody = message.body
+        } catch {
+            mergeError = friendlyShellError(error)
+        }
+    }
+
+    private func runSquashMerge() async {
+        guard let pr, let slug = repo.slug, canSquashMerge, !mergeInFlight else { return }
+        let subject = mergeSubject.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !subject.isEmpty else { return }
+        mergeInFlight = true
+        mergeError = nil
+        defer { mergeInFlight = false }
+        do {
+            try await GHClient.squashMerge(slug: slug, prNumber: pr.number, subject: subject, body: mergeBody)
+            AppSoundPlayer.play(.squashMerge)
+            showMerge = false
+            mergeSubject = ""
+            mergeBody = ""
+            await SyncManager.shared.syncRepo(id: repo.id)
+            await onAfterAction()
+        } catch {
+            mergeError = friendlyShellError(error)
+        }
+    }
+
+    private func friendlyShellError(_ err: Error) -> String {
+        String(describing: err).replacingOccurrences(of: "ShellError.", with: "")
+    }
+}
+
+private struct SquashMergePopover: View {
+    let pr: PullRequest?
+    @Binding var subject: String
+    @Binding var mergeBody: String
+    @Binding var loadingDefaults: Bool
+    @Binding var inFlight: Bool
+    @Binding var error: String?
+    @Binding var isPresented: Bool
+    let canMerge: Bool
+    let onReloadDefaults: @MainActor () async -> Void
+    let onMerge: @MainActor () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                if let pr {
+                    PRReferenceView(pr: pr, style: .compact)
+                }
+                Spacer()
+                Button {
+                    Task { await onReloadDefaults() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .disabled(loadingDefaults || inFlight)
+                .help("Regenerate GitHub default message")
+                .pointingHand()
+            }
+
+            TextField("Commit message", text: $subject, axis: .vertical)
+                .lineLimit(1...3)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .padding(8)
+                .background(DT.Color.surface, in: RoundedRectangle(cornerRadius: DT.Radius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DT.Radius.sm)
+                        .stroke(DT.Color.border, lineWidth: 0.5)
+                )
+                .frame(width: 360)
+
+            TextEditor(text: $mergeBody)
+                .font(.system(size: 11))
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .background(DT.Color.surface, in: RoundedRectangle(cornerRadius: DT.Radius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DT.Radius.sm)
+                        .stroke(DT.Color.border, lineWidth: 0.5)
+                )
+                .frame(width: 360, height: 156)
+
+            if loadingDefaults {
+                Label("Generating GitHub squash message", systemImage: "wand.and.sparkles")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            if let error {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(DT.Color.red)
+                    .frame(maxWidth: 360, alignment: .leading)
+            }
+
+            HStack(spacing: 6) {
+                Spacer()
+                Button("Cancel") { isPresented = false }
+                    .keyboardShortcut(.cancelAction)
+                Button {
+                    Task { await onMerge() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if inFlight { ProgressView().controlSize(.small).scaleEffect(0.7) }
+                        Text("Squash & merge")
+                    }
+                }
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!canMerge
+                          || loadingDefaults
+                          || inFlight
+                          || subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(14)
     }
 }
