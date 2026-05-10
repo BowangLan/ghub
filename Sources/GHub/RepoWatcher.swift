@@ -1,35 +1,38 @@
 import Foundation
 import CoreServices
 
-/// Watches a single repository directory for filesystem changes and triggers a
-/// per-repo sync after a short debounce. Uses FSEvents (recursive).
+/// Watches repository directories for filesystem changes and triggers per-repo
+/// syncs after a short debounce. Uses FSEvents (recursive).
 ///
-/// Re-target with `watch(repoID:path:)`. Pass `nil`s to stop.
+/// Re-target with `watch(repos:)`. Pass an empty list to stop.
 final class RepoWatcher: @unchecked Sendable {
+    struct WatchedRepo: Hashable, Sendable {
+        let repoID: String
+        let path: String
+    }
+
     @MainActor static let shared = RepoWatcher()
 
     private let queue = DispatchQueue(label: "ghub.repowatcher")
     private var stream: FSEventStreamRef?
-    private var currentRepoID: String?
-    private var currentPath: String?
-    private var pendingSync: DispatchWorkItem?
-    private var pendingChanges: Set<RepoChange> = []
+    private var watchedRepos: [WatchedRepo] = []
+    private var pendingSyncs: [String: DispatchWorkItem] = [:]
+    private var pendingChangesByRepo: [String: Set<RepoChange>] = [:]
 
     private init() {}
 
-    func watch(repoID: String?, path: String?) {
+    func watch(repos: [WatchedRepo]) {
         queue.async { [weak self] in
-            self?._watch(repoID: repoID, path: path)
+            self?._watch(repos: repos)
         }
     }
 
-    private func _watch(repoID: String?, path: String?) {
-        if currentRepoID == repoID, currentPath == path { return }
+    private func _watch(repos: [WatchedRepo]) {
+        let repos = normalized(repos: repos)
+        if watchedRepos == repos { return }
         teardown()
-        currentRepoID = repoID
-        currentPath = path
-        guard let path, !path.isEmpty,
-              FileManager.default.fileExists(atPath: path) else { return }
+        watchedRepos = repos
+        guard !repos.isEmpty else { return }
 
         let info = Unmanaged.passUnretained(self).toOpaque()
         var ctx = FSEventStreamContext(
@@ -39,7 +42,7 @@ final class RepoWatcher: @unchecked Sendable {
             release: nil,
             copyDescription: nil
         )
-        let paths = [path] as CFArray
+        let paths = repos.map(\.path) as CFArray
         let flags = UInt32(
             kFSEventStreamCreateFlagFileEvents
             | kFSEventStreamCreateFlagNoDefer
@@ -72,8 +75,33 @@ final class RepoWatcher: @unchecked Sendable {
         stream = s
     }
 
+    private func normalized(repos: [WatchedRepo]) -> [WatchedRepo] {
+        let existing = repos.compactMap { repo -> WatchedRepo? in
+            let path = repo.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let absolutePath = repo.path.hasPrefix("/") ? "/" + path : path
+            guard !repo.repoID.isEmpty, !absolutePath.isEmpty,
+                  FileManager.default.fileExists(atPath: absolutePath) else { return nil }
+            return WatchedRepo(repoID: repo.repoID, path: absolutePath)
+        }
+        return Array(Set(existing)).sorted {
+            if $0.path == $1.path { return $0.repoID < $1.repoID }
+            return $0.path < $1.path
+        }
+    }
+
     private func handle(paths: [String]) {
-        let changes = Set(paths.map(Self.resolveChange))
+        var changesByRepo: [WatchedRepo: Set<RepoChange>] = [:]
+        for path in paths {
+            guard let repo = repo(for: path) else { continue }
+            changesByRepo[repo, default: []].insert(Self.resolveChange(path))
+        }
+
+        for (repo, changes) in changesByRepo {
+            handle(changes: changes, repo: repo)
+        }
+    }
+
+    private func handle(changes: Set<RepoChange>, repo: WatchedRepo) {
         let shouldSync = changes.contains { change in
             switch change {
             case .normalFile:
@@ -84,8 +112,14 @@ final class RepoWatcher: @unchecked Sendable {
         }
         guard shouldSync else { return }
 
-        pendingChanges.formUnion(changes)
-        scheduleSync()
+        pendingChangesByRepo[repo.repoID, default: []].formUnion(changes)
+        scheduleSync(repo: repo)
+    }
+
+    private func repo(for changedPath: String) -> WatchedRepo? {
+        watchedRepos
+            .filter { changedPath == $0.path || changedPath.hasPrefix($0.path + "/") }
+            .max { $0.path.count < $1.path.count }
     }
 
     private static func resolveChange(_ path: String) -> RepoChange {
@@ -166,31 +200,32 @@ final class RepoWatcher: @unchecked Sendable {
         return false
     }
 
-    private func scheduleSync() {
-        pendingSync?.cancel()
+    private func scheduleSync(repo: WatchedRepo) {
+        pendingSyncs[repo.repoID]?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            let id = self.currentRepoID
-            let path = self.currentPath
-            let changes = self.pendingChanges
-            self.pendingChanges.removeAll()
-            guard let id else { return }
+            let changes = self.pendingChangesByRepo[repo.repoID] ?? []
+            self.pendingChangesByRepo[repo.repoID] = nil
+            self.pendingSyncs[repo.repoID] = nil
             let soundHint = Self.soundHint(for: changes)
             Task {
-                if let sound = await Self.soundKind(for: soundHint, repoPath: path) {
+                if let sound = await Self.soundKind(for: soundHint, repoPath: repo.path) {
                     await MainActor.run { AppSoundPlayer.play(sound) }
                 }
-                await SyncManager.shared.syncRepoLocalOnly(id: id)
+                await SyncManager.shared.syncRepoLocalOnly(id: repo.repoID)
             }
         }
-        pendingSync = work
+        pendingSyncs[repo.repoID] = work
         queue.asyncAfter(deadline: .now() + .milliseconds(700), execute: work)
     }
 
     private func teardown() {
-        pendingSync?.cancel()
-        pendingSync = nil
-        pendingChanges.removeAll()
+        for pendingSync in pendingSyncs.values {
+            pendingSync.cancel()
+        }
+        pendingSyncs = [:]
+        pendingChangesByRepo = [:]
+        watchedRepos = []
         if let s = stream {
             FSEventStreamStop(s)
             FSEventStreamInvalidate(s)

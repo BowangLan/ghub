@@ -59,8 +59,10 @@ final class AppState: ObservableObject {
     }
 
     func applyWatcher() {
-        let path = selectedRepo?.path
-        RepoWatcher.shared.watch(repoID: selectedRepoID, path: path)
+        let watchedRepos = repos
+            .filter(\.syncEnabled)
+            .map { RepoWatcher.WatchedRepo(repoID: $0.id, path: $0.path) }
+        RepoWatcher.shared.watch(repos: watchedRepos)
     }
 
     private static func loadInterval() -> Int {
