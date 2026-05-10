@@ -11,7 +11,9 @@ let package = Package(
         .executableTarget(
             name: "GHub",
             path: "Sources/GHub",
-            resources: [],
+            resources: [
+                .process("Resources")
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ],
