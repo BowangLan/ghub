@@ -47,11 +47,12 @@ final class MiniWindowController {
             p.backgroundColor = .clear
             p.hasShadow = true
             p.setFrameAutosaveName("GHubMiniWindow")
-            if p.frame.origin == .zero { p.center() }
+            p.setFrame(Self.initialHumanCenteredFrame(for: p), display: false)
 
-            let host = NSHostingController(rootView: MiniRepoView()
-                .environmentObject(AppState.shared)
-                .environmentObject(MiniWindowDockState.shared))
+            let host = NSHostingController(
+                rootView: MiniRepoView()
+                    .environmentObject(AppState.shared)
+                    .environmentObject(MiniWindowDockState.shared))
             host.view.wantsLayer = true
             // Layer-level mask so the rounded shape survives even if the
             // hosting view paints an opaque background underneath the SwiftUI
@@ -66,12 +67,13 @@ final class MiniWindowController {
                 layer.masksToBounds = true
                 layer.maskedCorners = [
                     .layerMinXMinYCorner, .layerMaxXMinYCorner,
-                    .layerMinXMaxYCorner, .layerMaxXMaxYCorner
+                    .layerMinXMaxYCorner, .layerMaxXMaxYCorner,
                 ]
             }
             p.contentViewController = host
-            p.contentMinSize = NSSize(width: MiniWindowMetrics.minWidth,
-                                      height: MiniWindowMetrics.expandedContentMinHeight)
+            p.contentMinSize = NSSize(
+                width: MiniWindowMetrics.minWidth,
+                height: MiniWindowMetrics.expandedContentMinHeight)
             panel = p
 
             installDragMonitors()
@@ -100,17 +102,38 @@ final class MiniWindowController {
 
     func isVisible() -> Bool { panel?.isVisible ?? false }
 
+    private static func initialHumanCenteredFrame(for window: NSWindow) -> NSRect {
+        guard let screen = NSScreen.main else { return window.frame }
+
+        let size = window.frame.size
+
+        return NSRect(
+            x: screen.frame.width - size.width,
+            y: 0.85 * screen.frame.height,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private static func clamp(_ value: CGFloat, min minValue: CGFloat, max maxValue: CGFloat)
+        -> CGFloat
+    {
+        guard minValue <= maxValue else { return minValue }
+        return Swift.min(Swift.max(value, minValue), maxValue)
+    }
+
     func shouldSuppressDockHoverExit() -> Bool {
         guard AppState.shared.miniMinified,
-              MiniWindowDockState.shared.isDocked,
-              peekAnimator != nil,
-              let p = panel
+            MiniWindowDockState.shared.isDocked,
+            peekAnimator != nil,
+            let p = panel
         else { return false }
 
         let current = p.frame
         let resting = restingDockedFrame(reference: current)
         let peeked = peekedFrame(restingFrame: resting)
-        let transitionEnvelope = current
+        let transitionEnvelope =
+            current
             .union(resting)
             .union(peeked)
             .insetBy(dx: -2, dy: -2)
@@ -170,8 +193,9 @@ final class MiniWindowController {
         } else {
             p.contentMinSize = NSSize(
                 width: MiniWindowMetrics.minWidth,
-                height: minified ? newFrame.height
-                                 : MiniWindowMetrics.expandedContentMinHeight
+                height: minified
+                    ? newFrame.height
+                    : MiniWindowMetrics.expandedContentMinHeight
             )
         }
 
@@ -224,9 +248,11 @@ final class MiniWindowController {
         if minified {
             targetContent = compactContentSize(for: panel, currentContentSize: curContentSize)
         } else {
-            targetContent = loadExpandedContentSize()
-                ?? NSSize(width: MiniWindowMetrics.expandedDefaultSize.width,
-                          height: MiniWindowMetrics.expandedDefaultSize.height)
+            targetContent =
+                loadExpandedContentSize()
+                ?? NSSize(
+                    width: MiniWindowMetrics.expandedDefaultSize.width,
+                    height: MiniWindowMetrics.expandedDefaultSize.height)
         }
         let frameRect = panel.frameRect(forContentRect: NSRect(origin: .zero, size: targetContent))
         let topY = curFrame.maxY
@@ -263,7 +289,7 @@ final class MiniWindowController {
         let w = UserDefaults.standard.double(forKey: Self.lastExpandedWKey)
         let h = UserDefaults.standard.double(forKey: Self.lastExpandedHKey)
         guard w >= MiniWindowMetrics.persistedExpandedMinWidth,
-              h >= MiniWindowMetrics.persistedExpandedMinHeight
+            h >= MiniWindowMetrics.persistedExpandedMinHeight
         else { return nil }
         return NSSize(width: w, height: h)
     }
@@ -336,7 +362,7 @@ final class MiniWindowController {
         } else {
             layer.maskedCorners = [
                 .layerMinXMinYCorner, .layerMaxXMinYCorner,
-                .layerMinXMaxYCorner, .layerMaxXMaxYCorner
+                .layerMinXMaxYCorner, .layerMaxXMaxYCorner,
             ]
         }
     }
@@ -356,7 +382,8 @@ final class MiniWindowController {
         }
 
         let resting = restingDockedFrame(reference: current)
-        let target = hovered
+        let target =
+            hovered
             ? peekedFrame(restingFrame: resting)
             : collapseDockedFrame(restingFrame: resting, from: current)
 
@@ -411,9 +438,9 @@ final class MiniWindowController {
         let y = max(visible.minY, min(anchorY, visible.maxY - h))
         let x: CGFloat
         switch MiniWindowDockState.shared.edge {
-        case .left:  x = screenFrame.minX
+        case .left: x = screenFrame.minX
         case .right: x = screenFrame.maxX - w
-        case .none:  return reference
+        case .none: return reference
         }
         return NSRect(x: x, y: y, width: w, height: h)
     }
@@ -427,9 +454,9 @@ final class MiniWindowController {
         let y = max(visible.minY, min(resting.minY, visible.maxY - h))
         let x: CGFloat
         switch MiniWindowDockState.shared.edge {
-        case .left:  x = screenFrame.minX
+        case .left: x = screenFrame.minX
         case .right: x = screenFrame.maxX - w
-        case .none:  return resting
+        case .none: return resting
         }
         return NSRect(x: x, y: y, width: w, height: h)
     }
@@ -460,7 +487,9 @@ final class MiniWindowController {
         mouseDraggedMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDragged]
         ) { [weak self] event in
-            guard let self, let p = self.panel, let start = self.dragStartFrame else { return event }
+            guard let self, let p = self.panel, let start = self.dragStartFrame else {
+                return event
+            }
             if p.frame != start, MiniWindowDockState.shared.edge != .none {
                 self.peekAnimator?.cancel()
                 self.peekAnimator = nil
@@ -476,8 +505,9 @@ final class MiniWindowController {
         ) { [weak self] event in
             guard let self else { return event }
             if let start = self.dragStartFrame,
-               let p = self.panel,
-               p.frame != start {
+                let p = self.panel,
+                p.frame != start
+            {
                 Task { @MainActor in self.snapToNearestHorizontalEdge() }
             }
             self.dragStartFrame = nil
@@ -515,13 +545,15 @@ final class MiniWindowController {
             targetWidth = cur.width
             targetHeight = cur.height
         }
-        let targetX: CGFloat = (snapEdge == .left)
+        let targetX: CGFloat =
+            (snapEdge == .left)
             ? screenFrame.minX
             : screenFrame.maxX - targetWidth
         let proposedY = cur.minY
         let clampedY = max(visible.minY, min(proposedY, visible.maxY - targetHeight))
-        let target = NSRect(x: targetX, y: clampedY,
-                            width: targetWidth, height: targetHeight)
+        let target = NSRect(
+            x: targetX, y: clampedY,
+            width: targetWidth, height: targetHeight)
 
         if isMinified {
             // Persist the docked bottom edge so hover peeking grows upward

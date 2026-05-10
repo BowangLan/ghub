@@ -13,6 +13,11 @@ enum MiniWindowMetrics {
     /// fallback when no persisted expanded size exists.
     static let expandedDefaultSize = CGSize(width: 380, height: 480)
 
+    /// First-run placement uses a top-right visual anchor. The offset from
+    /// top/right is derived from golden-ratio powers so it feels intentional
+    /// across differently sized displays.
+    static let initialPlacementGoldenRatio: CGFloat = 1.618_033_988_75
+
     /// Minimum content height the user can manually shrink to while expanded.
     static let expandedContentMinHeight: CGFloat = 400
 
