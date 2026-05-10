@@ -83,7 +83,7 @@ final class RepoWatcher: @unchecked Sendable {
         }
         guard shouldSync else { return }
 
-        scheduleSync(sound: Self.soundKind(for: changes))
+        scheduleSync(soundHint: Self.soundHint(for: changes))
     }
 
     private static func resolveChange(_ path: String) -> RepoChange {
@@ -101,29 +101,53 @@ final class RepoWatcher: @unchecked Sendable {
         // Treat them as sync triggers only; a push sound needs an app-owned push action.
         if path.contains("/.git/logs/refs/remotes/") { return .git(.remoteRefUpdate) }
         if path.contains("/.git/refs/remotes/") { return .git(.remoteRefUpdate) }
-        if path.contains("/.git/logs/refs/heads/") { return .git(.commit) }
-        if path.contains("/.git/refs/heads/") { return .git(.commit) }
+        if path.contains("/.git/logs/refs/heads/") { return .git(.localHistoryUpdate) }
+        if path.contains("/.git/refs/heads/") { return .git(.localHistoryUpdate) }
         if path.contains("/.git/refs/") { return .git(.refUpdate) }
-        if path.hasSuffix("/.git/logs/HEAD") { return .git(.commit) }
+        if path.hasSuffix("/.git/logs/HEAD") { return .git(.localHistoryUpdate) }
         if path.contains("/.git/logs/") { return .git(.historyUpdate) }
         return .git(.ignoredInternal)
     }
 
-    private static func soundKind(for changes: [RepoChange]) -> AppSoundKind? {
-        if changes.contains(.git(.commit)) { return .gitCommit }
+    private static func soundHint(for changes: [RepoChange]) -> SoundHint {
+        if changes.contains(.git(.localHistoryUpdate)) { return .localHistoryUpdate }
         if changes.contains(.normalFile) { return .normalFile }
-        return nil
+        return .none
     }
 
-    private func scheduleSync(sound: AppSoundKind?) {
+    private static func soundKind(for hint: SoundHint, repoPath: String?) async -> AppSoundKind? {
+        switch hint {
+        case .none:
+            return nil
+        case .normalFile:
+            return .normalFile
+        case .localHistoryUpdate:
+            guard let repoPath, await latestHeadReflogLooksLikeCommit(path: repoPath) else { return nil }
+            return .gitCommit
+        }
+    }
+
+    private static func latestHeadReflogLooksLikeCommit(path: String) async -> Bool {
+        let out = try? await Shell.run(GitClient.bin, ["-C", path, "reflog", "-1", "--format=%gs", "HEAD"])
+        guard out?.status == 0 else { return false }
+        let subject = out?.stdout.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return subject.hasPrefix("commit")
+            || subject.hasPrefix("cherry-pick:")
+            || subject.hasPrefix("revert:")
+    }
+
+    private func scheduleSync(soundHint: SoundHint) {
         pendingSync?.cancel()
         let id = currentRepoID
+        let path = currentPath
         let work = DispatchWorkItem {
             guard let id else { return }
-            if let sound {
-                Task { @MainActor in AppSoundPlayer.play(sound) }
+            Task {
+                if let sound = await Self.soundKind(for: soundHint, repoPath: path) {
+                    await MainActor.run { AppSoundPlayer.play(sound) }
+                }
+                await SyncManager.shared.syncRepoLocalOnly(id: id)
             }
-            Task { await SyncManager.shared.syncRepoLocalOnly(id: id) }
         }
         pendingSync = work
         queue.asyncAfter(deadline: .now() + .milliseconds(200), execute: work)
@@ -151,9 +175,15 @@ private enum RepoChange: Equatable {
 private enum GitChangeKind: Equatable {
     case headUpdate
     case historyUpdate
+    case localHistoryUpdate
     case mergeUpdate
     case refUpdate
-    case commit
     case remoteRefUpdate
     case ignoredInternal
+}
+
+private enum SoundHint {
+    case none
+    case normalFile
+    case localHistoryUpdate
 }
