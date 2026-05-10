@@ -13,6 +13,7 @@ final class RepoWatcher: @unchecked Sendable {
     private var currentRepoID: String?
     private var currentPath: String?
     private var pendingSync: DispatchWorkItem?
+    private var pendingChanges: Set<RepoChange> = []
 
     private init() {}
 
@@ -72,7 +73,7 @@ final class RepoWatcher: @unchecked Sendable {
     }
 
     private func handle(paths: [String]) {
-        let changes = paths.map(Self.resolveChange)
+        let changes = Set(paths.map(Self.resolveChange))
         let shouldSync = changes.contains { change in
             switch change {
             case .normalFile:
@@ -83,7 +84,8 @@ final class RepoWatcher: @unchecked Sendable {
         }
         guard shouldSync else { return }
 
-        scheduleSync(soundHint: Self.soundHint(for: changes))
+        pendingChanges.formUnion(changes)
+        scheduleSync()
     }
 
     private static func resolveChange(_ path: String) -> RepoChange {
@@ -98,9 +100,9 @@ final class RepoWatcher: @unchecked Sendable {
         if path.hasSuffix("/.git/MERGE_HEAD") { return .git(.mergeUpdate) }
         if path.hasSuffix("/.git/packed-refs") { return .git(.refUpdate) }
         // Remote-tracking refs can move after fetch, pull, prune, or push.
-        // Treat them as sync triggers only; a push sound needs an app-owned push action.
-        if path.contains("/.git/logs/refs/remotes/") { return .git(.remoteRefUpdate) }
-        if path.contains("/.git/refs/remotes/") { return .git(.remoteRefUpdate) }
+        // The remote reflog subject distinguishes terminal `git push` from fetch-like updates.
+        if path.contains("/.git/logs/refs/remotes/") { return .git(.remoteRefUpdate(remoteRefName(from: path))) }
+        if path.contains("/.git/refs/remotes/") { return .git(.remoteRefUpdate(remoteRefName(from: path))) }
         if path.contains("/.git/logs/refs/heads/") { return .git(.localHistoryUpdate) }
         if path.contains("/.git/refs/heads/") { return .git(.localHistoryUpdate) }
         if path.contains("/.git/refs/") { return .git(.refUpdate) }
@@ -109,7 +111,22 @@ final class RepoWatcher: @unchecked Sendable {
         return .git(.ignoredInternal)
     }
 
-    private static func soundHint(for changes: [RepoChange]) -> SoundHint {
+    private static func remoteRefName(from path: String) -> String? {
+        if let range = path.range(of: "/.git/logs/") {
+            return String(path[range.upperBound...])
+        }
+        if let range = path.range(of: "/.git/") {
+            return String(path[range.upperBound...])
+        }
+        return nil
+    }
+
+    private static func soundHint(for changes: Set<RepoChange>) -> SoundHint {
+        let remoteRefs = changes.compactMap { change -> String? in
+            guard case .git(.remoteRefUpdate(let refName)) = change else { return nil }
+            return refName
+        }
+        if !remoteRefs.isEmpty { return .remoteRefUpdate(Array(Set(remoteRefs))) }
         if changes.contains(.git(.localHistoryUpdate)) { return .localHistoryUpdate }
         if changes.contains(.normalFile) { return .normalFile }
         return .none
@@ -121,6 +138,9 @@ final class RepoWatcher: @unchecked Sendable {
             return nil
         case .normalFile:
             return .normalFile
+        case .remoteRefUpdate(let refNames):
+            guard let repoPath, await latestRemoteReflogLooksLikePush(path: repoPath, refNames: refNames) else { return nil }
+            return .gitPush
         case .localHistoryUpdate:
             guard let repoPath, await latestHeadReflogLooksLikeCommit(path: repoPath) else { return nil }
             return .gitCommit
@@ -136,12 +156,26 @@ final class RepoWatcher: @unchecked Sendable {
             || subject.hasPrefix("revert:")
     }
 
-    private func scheduleSync(soundHint: SoundHint) {
+    private static func latestRemoteReflogLooksLikePush(path: String, refNames: [String]) async -> Bool {
+        for refName in refNames {
+            let out = try? await Shell.run(GitClient.bin, ["-C", path, "reflog", "-1", "--format=%gs", refName])
+            guard out?.status == 0 else { continue }
+            let subject = out?.stdout.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if subject == "update by push" { return true }
+        }
+        return false
+    }
+
+    private func scheduleSync() {
         pendingSync?.cancel()
-        let id = currentRepoID
-        let path = currentPath
-        let work = DispatchWorkItem {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let id = self.currentRepoID
+            let path = self.currentPath
+            let changes = self.pendingChanges
+            self.pendingChanges.removeAll()
             guard let id else { return }
+            let soundHint = Self.soundHint(for: changes)
             Task {
                 if let sound = await Self.soundKind(for: soundHint, repoPath: path) {
                     await MainActor.run { AppSoundPlayer.play(sound) }
@@ -150,12 +184,13 @@ final class RepoWatcher: @unchecked Sendable {
             }
         }
         pendingSync = work
-        queue.asyncAfter(deadline: .now() + .milliseconds(200), execute: work)
+        queue.asyncAfter(deadline: .now() + .milliseconds(700), execute: work)
     }
 
     private func teardown() {
         pendingSync?.cancel()
         pendingSync = nil
+        pendingChanges.removeAll()
         if let s = stream {
             FSEventStreamStop(s)
             FSEventStreamInvalidate(s)
@@ -167,18 +202,18 @@ final class RepoWatcher: @unchecked Sendable {
     deinit { teardown() }
 }
 
-private enum RepoChange: Equatable {
+private enum RepoChange: Hashable {
     case normalFile
     case git(GitChangeKind)
 }
 
-private enum GitChangeKind: Equatable {
+private enum GitChangeKind: Hashable {
     case headUpdate
     case historyUpdate
     case localHistoryUpdate
     case mergeUpdate
     case refUpdate
-    case remoteRefUpdate
+    case remoteRefUpdate(String?)
     case ignoredInternal
 }
 
@@ -186,4 +221,5 @@ private enum SoundHint {
     case none
     case normalFile
     case localHistoryUpdate
+    case remoteRefUpdate([String])
 }
