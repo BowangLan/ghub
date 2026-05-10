@@ -48,31 +48,19 @@ struct FooterBarSection: View {
 
     private var commitButton: some View {
         let enabled = stagedCount > 0 && !commitInFlight
-        return Button {
+        return IconButton(
+            systemName: "checkmark",
+            help: enabled ? "Commit \(stagedCount) staged change\(stagedCount == 1 ? "" : "s")"
+                          : "Stage changes first (git add)",
+            variant: .primary,
+            badge: stagedCount,
+            inFlight: commitInFlight
+        ) {
             commitMessage = ""
             commitError = nil
             showCommit = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .semibold))
-                Text(stagedCount > 0 ? "Commit (\(stagedCount))" : "Commit")
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .padding(.horizontal, 10)
-            .frame(height: DT.Size.footerBtnHeight)
-            .background(
-                RoundedRectangle(cornerRadius: DT.Radius.sm)
-                    .fill(enabled ? Color.accentColor : Color.accentColor.opacity(0.35))
-            )
-            .foregroundStyle(.white)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .disabled(!enabled)
-        .help(enabled ? "Commit \(stagedCount) staged change\(stagedCount == 1 ? "" : "s")"
-                      : "Stage changes first (git add)")
-        .pointingHand()
         .popover(isPresented: $showCommit, arrowEdge: .top) {
             CommitPopover(
                 repo: repo,
