@@ -60,18 +60,24 @@ final class CIMonitor {
         guard !discovered.isEmpty else { return }
 
         var stillHot = Set<CIWatchTarget>()
-        await withTaskGroup(of: (CIWatchTarget, Bool).self) { group in
+        var finishedGreen = false
+        await withTaskGroup(of: (CIWatchTarget, CIRefreshResult).self) { group in
             for target in discovered {
                 group.addTask {
-                    let isPending = await SyncManager.refreshChecksOnly(target: target)
-                    return (target, isPending)
+                    let result = await SyncManager.refreshChecksOnly(target: target)
+                    return (target, result)
                 }
             }
-            for await (target, isPending) in group {
-                if isPending {
+            for await (target, result) in group {
+                if result == .pending {
                     stillHot.insert(target)
+                } else if result == .finishedGreen {
+                    finishedGreen = true
                 }
             }
+        }
+        if finishedGreen {
+            AppSoundPlayer.play(.ciGreen)
         }
         if hotPRs != stillHot {
             hotPRs = stillHot

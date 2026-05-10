@@ -172,7 +172,7 @@ final class SyncManager {
 
     /// Refresh one hot PR via `gh pr checks`, then recompute repo-level CI counts.
     @discardableResult
-    nonisolated static func refreshChecksOnly(target: CIWatchTarget) async -> Bool {
+    nonisolated static func refreshChecksOnly(target: CIWatchTarget) async -> CIRefreshResult {
         do {
             let checks = try await GHClient.fetchChecks(
                 slug: target.slug,
@@ -185,9 +185,9 @@ final class SyncManager {
                 checks: checks
             )
             try await updateRepoPRCountsFromDatabase(repoID: target.repoID)
-            return checks.contains(where: \.isPending)
+            return CIRefreshResult(checks: checks)
         } catch {
-            return true
+            return .pending
         }
     }
 
@@ -222,5 +222,21 @@ final class SyncManager {
             pendingCheckCount: counts.pending,
             lastSyncedAt: Date()
         )
+    }
+}
+
+enum CIRefreshResult: Equatable, Sendable {
+    case pending
+    case finishedGreen
+    case finishedNotGreen
+
+    init(checks: [CICheck]) {
+        if checks.contains(where: \.isPending) {
+            self = .pending
+        } else if !checks.isEmpty, checks.allSatisfy(\.isSuccess) {
+            self = .finishedGreen
+        } else {
+            self = .finishedNotGreen
+        }
     }
 }

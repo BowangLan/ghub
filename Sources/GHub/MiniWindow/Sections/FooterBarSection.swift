@@ -92,6 +92,7 @@ struct FooterBarSection: View {
         defer { pushInFlight = false }
         do {
             try await GitClient.push(path: repo.path)
+            AppSoundPlayer.play(.gitPush)
             await SyncManager.shared.syncRepo(id: repo.id)
             await onAfterAction()
         } catch {

@@ -1,6 +1,5 @@
 import Foundation
 import CoreServices
-import AppKit
 
 /// Watches a single repository directory for filesystem changes and triggers a
 /// per-repo sync after a short debounce. Uses FSEvents (recursive).
@@ -98,8 +97,10 @@ final class RepoWatcher: @unchecked Sendable {
         if path.hasSuffix("/.git/ORIG_HEAD") { return .git(.historyUpdate) }
         if path.hasSuffix("/.git/MERGE_HEAD") { return .git(.mergeUpdate) }
         if path.hasSuffix("/.git/packed-refs") { return .git(.refUpdate) }
-        if path.contains("/.git/logs/refs/remotes/") { return .git(.push) }
-        if path.contains("/.git/refs/remotes/") { return .git(.push) }
+        // Remote-tracking refs can move after fetch, pull, prune, or push.
+        // Treat them as sync triggers only; a push sound needs an app-owned push action.
+        if path.contains("/.git/logs/refs/remotes/") { return .git(.remoteRefUpdate) }
+        if path.contains("/.git/refs/remotes/") { return .git(.remoteRefUpdate) }
         if path.contains("/.git/logs/refs/heads/") { return .git(.commit) }
         if path.contains("/.git/refs/heads/") { return .git(.commit) }
         if path.contains("/.git/refs/") { return .git(.refUpdate) }
@@ -108,20 +109,19 @@ final class RepoWatcher: @unchecked Sendable {
         return .git(.ignoredInternal)
     }
 
-    private static func soundKind(for changes: [RepoChange]) -> ChangeSoundKind? {
-        if changes.contains(.git(.push)) { return .push }
-        if changes.contains(.git(.commit)) { return .commit }
+    private static func soundKind(for changes: [RepoChange]) -> AppSoundKind? {
+        if changes.contains(.git(.commit)) { return .gitCommit }
         if changes.contains(.normalFile) { return .normalFile }
         return nil
     }
 
-    private func scheduleSync(sound: ChangeSoundKind?) {
+    private func scheduleSync(sound: AppSoundKind?) {
         pendingSync?.cancel()
         let id = currentRepoID
         let work = DispatchWorkItem {
             guard let id else { return }
             if let sound {
-                Task { @MainActor in ChangeSoundPlayer.play(sound) }
+                Task { @MainActor in AppSoundPlayer.play(sound) }
             }
             Task { await SyncManager.shared.syncRepoLocalOnly(id: id) }
         }
@@ -154,40 +154,6 @@ private enum GitChangeKind: Equatable {
     case mergeUpdate
     case refUpdate
     case commit
-    case push
+    case remoteRefUpdate
     case ignoredInternal
-}
-
-private enum ChangeSoundKind {
-    case normalFile
-    case commit
-    case push
-
-    var resourceName: String {
-        switch self {
-        case .normalFile:
-            return "pen-click"
-        case .commit:
-            return "git-commit"
-        case .push:
-            return "git-push"
-        }
-    }
-}
-
-@MainActor
-private enum ChangeSoundPlayer {
-    private static var sounds: [ChangeSoundKind: NSSound] = [:]
-
-    static func play(_ kind: ChangeSoundKind) {
-        if sounds[kind] == nil,
-           let url = Bundle.module.url(forResource: kind.resourceName, withExtension: "mp3") {
-            sounds[kind] = NSSound(contentsOf: url, byReference: false)
-        }
-
-        let sound = sounds[kind]
-        sound?.stop()
-        sound?.currentTime = 0
-        sound?.play()
-    }
 }
