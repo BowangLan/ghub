@@ -164,7 +164,7 @@ struct FooterBarSection: View {
             await SyncManager.shared.syncRepo(id: repo.id)
             await onAfterAction()
         } catch {
-            NSSound.beep()
+            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
         }
     }
 
@@ -177,7 +177,7 @@ struct FooterBarSection: View {
             await SyncManager.shared.syncRepo(id: repo.id)
             await onAfterAction()
         } catch {
-            NSSound.beep()
+            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
         }
     }
 

@@ -1,4 +1,4 @@
-import AppKit
+import AVFoundation
 import Foundation
 
 enum AppSoundKind {
@@ -26,17 +26,20 @@ enum AppSoundKind {
 
 @MainActor
 enum AppSoundPlayer {
-    private static var sounds: [AppSoundKind: NSSound] = [:]
+    private static let soundEffectVolume: Float = 0.3
+    private static var players: [AppSoundKind: AVAudioPlayer] = [:]
 
     static func play(_ kind: AppSoundKind) {
-        if sounds[kind] == nil,
+        if players[kind] == nil,
            let url = Bundle.module.url(forResource: kind.resourceName, withExtension: "mp3") {
-            sounds[kind] = NSSound(contentsOf: url, byReference: false)
+            players[kind] = try? AVAudioPlayer(contentsOf: url)
+            players[kind]?.prepareToPlay()
         }
 
-        let sound = sounds[kind]
-        sound?.stop()
-        sound?.currentTime = 0
-        sound?.play()
+        let player = players[kind]
+        player?.stop()
+        player?.currentTime = 0
+        player?.volume = soundEffectVolume
+        player?.play()
     }
 }
