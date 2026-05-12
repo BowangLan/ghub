@@ -161,32 +161,34 @@ enum GHClient {
     /// commits use the PR title/number plus a commit list.
     static func defaultSquashMergeMessage(slug: String, prNumber: Int) async throws -> SquashMergeMessage {
         guard let bin else { throw ShellError.notFound("gh") }
-        let out = try await Shell.run(bin, [
+        let titleOut = try await Shell.run(bin, [
             "pr", "view", "\(prNumber)",
             "--repo", slug,
-            "--json", "title,commits"
+            "--json", "title"
         ])
-        if out.status != 0 {
-            throw ShellError.nonZeroExit(status: out.status, stderr: out.stderr.isEmpty ? out.stdout : out.stderr)
+        if titleOut.status != 0 {
+            throw ShellError.nonZeroExit(status: titleOut.status, stderr: titleOut.stderr.isEmpty ? titleOut.stdout : titleOut.stderr)
         }
         let decoder = JSONDecoder()
-        guard let data = out.stdout.data(using: .utf8),
-              let payload = try? decoder.decode(PRMergeMessagePayload.self, from: data)
+        guard let titleData = titleOut.stdout.data(using: .utf8),
+              let titlePayload = try? decoder.decode(PRMergeTitlePayload.self, from: titleData)
         else {
             return SquashMergeMessage(subject: "Merge pull request #\(prNumber)", body: "")
         }
 
-        if payload.commits.count == 1, let commit = payload.commits.first {
+        let commits = try await fetchPRCommitMessages(slug: slug, prNumber: prNumber)
+
+        if commits.count == 1, let commit = commits.first {
             return SquashMergeMessage(
-                subject: commit.messageHeadline.nilIfEmpty ?? payload.title,
-                body: commit.messageBody
+                subject: "\(commit.headline.nilIfEmpty ?? titlePayload.title) (#\(prNumber))",
+                body: commit.body
             )
         }
 
-        let subject = "\(payload.title) (#\(prNumber))"
-        let body = payload.commits
-            .map(\.messageHeadline)
-            .filter { !$0.isEmpty }
+        let subject = "\(titlePayload.title) (#\(prNumber))"
+        let body = commits
+            .map(\.headline)
+            .filter { !$0.isEmpty && $0 != "..." }
             .map { "* \($0)" }
             .joined(separator: "\n")
         return SquashMergeMessage(subject: subject, body: body)
@@ -210,27 +212,54 @@ enum GHClient {
             throw ShellError.nonZeroExit(status: out.status, stderr: out.stderr.isEmpty ? out.stdout : out.stderr)
         }
     }
+
+    private static func fetchPRCommitMessages(slug: String, prNumber: Int) async throws -> [PRCommitMessage] {
+        guard let bin else { throw ShellError.notFound("gh") }
+        let out = try await Shell.run(bin, [
+            "api",
+            "repos/\(slug)/pulls/\(prNumber)/commits",
+            "--paginate",
+            "--slurp"
+        ])
+        if out.status != 0 {
+            throw ShellError.nonZeroExit(status: out.status, stderr: out.stderr.isEmpty ? out.stdout : out.stderr)
+        }
+        guard let data = out.stdout.data(using: .utf8) else { return [] }
+        let decoder = JSONDecoder()
+        let pages = try decoder.decode([[PRCommitPayload]].self, from: data)
+        let payload = pages.flatMap { $0 }
+        return payload.compactMap { item in
+            guard item.parents.count <= 1 else { return nil }
+            let parts = item.commit.message.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+            let headline = parts.first.map(String.init)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !headline.isEmpty, headline != "..." else { return nil }
+            let body = parts.count > 1
+                ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                : ""
+            return PRCommitMessage(headline: headline, body: body)
+        }
+    }
 }
 
-private struct PRMergeMessagePayload: Decodable {
+private struct PRMergeTitlePayload: Decodable {
     let title: String
-    let commits: [PRCommitMessage]
 }
 
-private struct PRCommitMessage: Decodable {
-    let messageHeadline: String
-    let messageBody: String
+private struct PRCommitPayload: Decodable {
+    let commit: CommitDetails
+    let parents: [Parent]
 
-    private enum CodingKeys: String, CodingKey {
-        case messageHeadline
-        case messageBody
+    struct CommitDetails: Decodable {
+        let message: String
     }
 
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        messageHeadline = try c.decodeIfPresent(String.self, forKey: .messageHeadline) ?? ""
-        messageBody = try c.decodeIfPresent(String.self, forKey: .messageBody) ?? ""
-    }
+    struct Parent: Decodable {}
+}
+
+private struct PRCommitMessage {
+    let headline: String
+    let body: String
 }
 
 private extension String {
