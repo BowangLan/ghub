@@ -17,6 +17,7 @@ final class RepoWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
     private var watchedRepos: [WatchedRepo] = []
     private var pendingSyncs: [String: DispatchWorkItem] = [:]
+    private var pendingSyncTokens: [String: UUID] = [:]
     private var pendingChangesByRepo: [String: Set<RepoChange>] = [:]
 
     private init() {}
@@ -202,11 +203,15 @@ final class RepoWatcher: @unchecked Sendable {
 
     private func scheduleSync(repo: WatchedRepo) {
         pendingSyncs[repo.repoID]?.cancel()
+        let token = UUID()
+        pendingSyncTokens[repo.repoID] = token
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            guard self.pendingSyncTokens[repo.repoID] == token else { return }
             let changes = self.pendingChangesByRepo[repo.repoID] ?? []
             self.pendingChangesByRepo[repo.repoID] = nil
             self.pendingSyncs[repo.repoID] = nil
+            self.pendingSyncTokens[repo.repoID] = nil
             let soundHint = Self.soundHint(for: changes)
             Task {
                 if let sound = await Self.soundKind(for: soundHint, repoPath: repo.path) {
@@ -224,6 +229,7 @@ final class RepoWatcher: @unchecked Sendable {
             pendingSync.cancel()
         }
         pendingSyncs = [:]
+        pendingSyncTokens = [:]
         pendingChangesByRepo = [:]
         watchedRepos = []
         if let s = stream {
