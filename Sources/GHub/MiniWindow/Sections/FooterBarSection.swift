@@ -9,6 +9,7 @@ struct FooterBarSection: View {
     let onAfterAction: @MainActor () async -> Void
 
     @EnvironmentObject var state: AppState
+    @Environment(\.openSettings) private var openSettings
     @State private var showCommit: Bool = false
     @State private var commitMessage: String = ""
     @State private var commitInFlight: Bool = false
@@ -56,6 +57,14 @@ struct FooterBarSection: View {
             ) { Task { await SyncManager.shared.syncRepo(id: repo.id) } }
             .disabled(state.isSyncing)
             Spacer(minLength: 6)
+            IconButton(
+                systemName: "gearshape",
+                help: "Settings",
+                variant: .ghost
+            ) {
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
+            }
         }
         .padding(.horizontal, DT.Spacing.windowPaddingHorizontal)
         .padding(.bottom, DT.Spacing.windowPaddingVertical)
