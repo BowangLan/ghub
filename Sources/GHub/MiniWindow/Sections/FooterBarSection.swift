@@ -56,6 +56,14 @@ struct FooterBarSection: View {
                 inFlight: state.isSyncing
             ) { Task { await SyncManager.shared.syncRepo(id: repo.id) } }
             .disabled(state.isSyncing)
+            IconButton(
+                systemName: "doc.text.magnifyingglass",
+                help: "Show diff details",
+                variant: .outline,
+                badge: diff.staged.filesChanged + diff.unstaged.filesChanged + repo.untrackedCount
+            ) {
+                DiffDetailsWindowController.shared.show(repo: repo)
+            }
             Spacer(minLength: 6)
             IconButton(
                 systemName: "gearshape",

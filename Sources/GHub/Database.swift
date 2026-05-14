@@ -148,6 +148,26 @@ actor Database {
           FOREIGN KEY (repo_id, pr_number) REFERENCES pull_requests(repo_id, number) ON DELETE CASCADE
         );
         """)
+        try execRaw(db, """
+        CREATE TABLE IF NOT EXISTS diff_file_groups (
+          id TEXT PRIMARY KEY,
+          repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          branch TEXT,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at REAL NOT NULL
+        );
+        """)
+        try execRaw(db, "CREATE INDEX IF NOT EXISTS idx_diff_file_groups_repo_order ON diff_file_groups(repo_id, sort_order, created_at);")
+        try execRaw(db, """
+        CREATE TABLE IF NOT EXISTS diff_file_group_items (
+          repo_id TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+          file_key TEXT NOT NULL,
+          group_id TEXT NOT NULL REFERENCES diff_file_groups(id) ON DELETE CASCADE,
+          updated_at REAL NOT NULL,
+          PRIMARY KEY (repo_id, file_key)
+        );
+        """)
     }
 
     private static func execRaw(_ db: OpaquePointer, _ sql: String) throws {
@@ -529,4 +549,88 @@ actor Database {
         }
         return out
     }
+
+    // MARK: - Diff file groups
+
+    func diffFileGroups(repoID: String) throws -> [DiffFileGroupRecord] {
+        let stmt = try prepare("""
+            SELECT id, repo_id, name, branch, sort_order, created_at
+            FROM diff_file_groups WHERE repo_id = ? ORDER BY sort_order ASC, created_at ASC;
+        """)
+        defer { sqlite3_finalize(stmt) }
+        try bind(stmt, 1, repoID)
+        var out: [DiffFileGroupRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            out.append(DiffFileGroupRecord(
+                id: textCol(stmt, 0) ?? "",
+                repoID: textCol(stmt, 1) ?? "",
+                name: textCol(stmt, 2) ?? "",
+                branch: textCol(stmt, 3),
+                sortOrder: intCol(stmt, 4),
+                createdAt: dateCol(stmt, 5) ?? Date()
+            ))
+        }
+        return out
+    }
+
+    func createDiffFileGroup(repoID: String, name: String, branch: String? = nil) throws -> DiffFileGroupRecord {
+        let id = UUID().uuidString
+        let now = Date()
+        let nextOrder = try nextDiffFileGroupSortOrder(repoID: repoID)
+        try runStmt("""
+            INSERT INTO diff_file_groups (id, repo_id, name, branch, sort_order, created_at)
+            VALUES (?, ?, ?, ?, ?, ?);
+        """, [id, repoID, name, branch?.nilIfEmpty, nextOrder, now])
+        return DiffFileGroupRecord(id: id, repoID: repoID, name: name, branch: branch, sortOrder: nextOrder, createdAt: now)
+    }
+
+    func updateDiffFileGroupBranch(id: String, branch: String?) throws {
+        try runStmt("UPDATE diff_file_groups SET branch = ? WHERE id = ?;", [branch?.nilIfEmpty, id])
+    }
+
+    func diffFileGroupAssignments(repoID: String) throws -> [String: String] {
+        let stmt = try prepare("SELECT file_key, group_id FROM diff_file_group_items WHERE repo_id = ?;")
+        defer { sqlite3_finalize(stmt) }
+        try bind(stmt, 1, repoID)
+        var out: [String: String] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let key = textCol(stmt, 0), let groupID = textCol(stmt, 1) else { continue }
+            out[key] = groupID
+        }
+        return out
+    }
+
+    func assignDiffFile(repoID: String, fileKey: String, to groupID: String?) throws {
+        if let groupID {
+            try runStmt("""
+                INSERT OR REPLACE INTO diff_file_group_items (repo_id, file_key, group_id, updated_at)
+                VALUES (?, ?, ?, ?);
+            """, [repoID, fileKey, groupID, Date()])
+        } else {
+            try runStmt("DELETE FROM diff_file_group_items WHERE repo_id = ? AND file_key = ?;", [repoID, fileKey])
+        }
+    }
+
+    private func nextDiffFileGroupSortOrder(repoID: String) throws -> Int {
+        let stmt = try prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM diff_file_groups WHERE repo_id = ?;")
+        defer { sqlite3_finalize(stmt) }
+        try bind(stmt, 1, repoID)
+        if sqlite3_step(stmt) == SQLITE_ROW {
+            return intCol(stmt, 0)
+        }
+        return 0
+    }
+}
+
+struct DiffFileGroupRecord: Identifiable, Hashable, Sendable {
+    let id: String
+    let repoID: String
+    var name: String
+    var branch: String?
+    var sortOrder: Int
+    var createdAt: Date
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

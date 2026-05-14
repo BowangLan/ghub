@@ -209,6 +209,9 @@ struct RepoRow: View {
                 if let slug = repo.slug, let url = URL(string: "https://github.com/\(slug)") {
                     Button("GitHub") { NSWorkspace.shared.open(url) }
                 }
+                Button("Diffs") {
+                    DiffDetailsWindowController.shared.show(repo: repo)
+                }
                 Button("Sync now") {
                     Task { await SyncManager.shared.syncRepo(id: repo.id) }
                 }
