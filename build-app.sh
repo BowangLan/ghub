@@ -38,7 +38,6 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
   <key>CFBundleVersion</key>               <string>1</string>
   <key>CFBundleShortVersionString</key>    <string>0.1.0</string>
   <key>LSMinimumSystemVersion</key>        <string>14.0</string>
-  <key>LSUIElement</key>                   <true/>
   <key>NSHighResolutionCapable</key>       <true/>
   <key>NSAppleEventsUsageDescription</key> <string>$APP_NAME runs git and gh to sync repository state.</string>
 </dict>

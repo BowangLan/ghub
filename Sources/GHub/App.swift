@@ -26,7 +26,7 @@ struct GHubApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
         MiniWindowController.shared.show()
         Task {
             await SyncManager.shared.start()
@@ -36,5 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 CIMonitor.shared.start()
             }
         }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MiniWindowController.shared.show()
+        return true
     }
 }

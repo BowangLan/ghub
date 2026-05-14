@@ -2,7 +2,7 @@
 
 A small macOS menu-bar app that tracks the state of local Git repositories — branches,
 working-tree status, ahead/behind, open pull requests, and CI checks — all in one
-glanceable popover. No main window, no Dock icon: just a status item in the top
+glanceable popover. It appears in the Dock and keeps a status item in the top
 menu bar.
 
 ## What it shows
@@ -36,7 +36,7 @@ orange dirty, red failing CI).
 
 ```sh
 ./build-app.sh           # produces GHub.app (release, ad-hoc signed)
-open GHub.app            # launches; status item appears in the menu bar
+open GHub.app            # launches; Dock icon and status item appear
 ```
 
 For development / iteration:
