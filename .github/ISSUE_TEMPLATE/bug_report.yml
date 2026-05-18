@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible GHub problem.
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open GHub
+        2. Add a repo
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GHub version
+      placeholder: 0.1.0
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: 14.5
+  - type: textarea
+    id: details
+    attributes:
+      label: Logs or screenshots
+      description: Add anything that helps diagnose the issue.

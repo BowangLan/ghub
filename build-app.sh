@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 # Build a GHub.app bundle from the SwiftPM executable.
 # Usage: ./build-app.sh [debug|release]   (default: release)
+#
+# Environment overrides:
+#   VERSION=0.1.0
+#   BUILD_NUMBER=1
+#   BUNDLE_ID=com.bowanglan.ghub
+#   CODE_SIGN_IDENTITY=-
 
 set -euo pipefail
 
 CONFIG="${1:-release}"
 APP_NAME="GHub"
 APP_DIR="$APP_NAME.app"
-BUNDLE_ID="com.local.ghub"
+BUNDLE_ID="${BUNDLE_ID:-com.bowanglan.ghub}"
+VERSION="${VERSION:-0.1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
+CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}"
 
 cd "$(dirname "$0")"
 
@@ -35,8 +44,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
   <key>CFBundleName</key>                  <string>$APP_NAME</string>
   <key>CFBundleDisplayName</key>           <string>$APP_NAME</string>
   <key>CFBundlePackageType</key>           <string>APPL</string>
-  <key>CFBundleVersion</key>               <string>1</string>
-  <key>CFBundleShortVersionString</key>    <string>0.1.0</string>
+  <key>CFBundleVersion</key>               <string>$BUILD_NUMBER</string>
+  <key>CFBundleShortVersionString</key>    <string>$VERSION</string>
   <key>LSMinimumSystemVersion</key>        <string>14.0</string>
   <key>NSHighResolutionCapable</key>       <true/>
   <key>NSAppleEventsUsageDescription</key> <string>$APP_NAME runs git and gh to sync repository state.</string>
@@ -44,8 +53,9 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-# Ad-hoc sign so Gatekeeper doesn't refuse.
-codesign --force --sign - --timestamp=none "$APP_DIR" >/dev/null 2>&1 || true
+# Ad-hoc sign by default so Gatekeeper doesn't refuse local builds.
+codesign --force --sign "$CODE_SIGN_IDENTITY" --timestamp=none "$APP_DIR" >/dev/null 2>&1 || true
 
 echo "✓ built $APP_DIR"
+echo "  version: $VERSION ($BUILD_NUMBER)"
 echo "  run with: open $APP_DIR     (or)     $APP_DIR/Contents/MacOS/$APP_NAME"

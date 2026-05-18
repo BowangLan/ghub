@@ -28,6 +28,12 @@ final class RepoWatcher: @unchecked Sendable {
         }
     }
 
+    func stop() {
+        queue.async { [weak self] in
+            self?.teardown()
+        }
+    }
+
     private func _watch(repos: [WatchedRepo]) {
         let repos = normalized(repos: repos)
         if watchedRepos == repos { return }

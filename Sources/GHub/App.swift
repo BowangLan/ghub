@@ -42,4 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MiniWindowController.shared.show()
         return true
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        SyncManager.shared.stop()
+        CIMonitor.shared.stop()
+        RepoWatcher.shared.stop()
+    }
 }

@@ -7,3 +7,4 @@
 *.xcworkspace/
 Package.resolved
 GHub.app/
+dist/

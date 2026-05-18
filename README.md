@@ -46,6 +46,16 @@ swift build              # debug build
 swift run GHub           # runs in foreground; ⌃C to stop
 ```
 
+## Releases
+
+Releases are built from tags by GitHub Actions. Push a semantic version tag like
+`v0.1.0`; the release workflow packages `GHub.app` as a zip, writes a SHA-256
+checksum, and publishes a GitHub Release with generated notes.
+
+See [docs/RELEASES.md](docs/RELEASES.md) for the release process and
+[docs/GITHUB_REPOSITORY_SETTINGS.md](docs/GITHUB_REPOSITORY_SETTINGS.md) for
+recommended repository settings.
+
 ## Usage
 
 1. Click the menu-bar icon → **Add Repo…** → pick a local Git checkout.

@@ -18,6 +18,9 @@ struct MenuView: View {
             MenuFooterView(onAddRepo: addRepo)
         }
         .frame(width: 380)
+        .onChange(of: state.repos.map(\.id)) { _, repoIDs in
+            expanded.formIntersection(Set(repoIDs))
+        }
     }
 
     // MARK: - List

@@ -55,6 +55,10 @@ struct MiniRepoView: View {
         )
         .contentShape(Rectangle())
         .onHover { isOver in handleHover(isOver) }
+        .onDisappear {
+            hoverTask?.cancel()
+            hoverTask = nil
+        }
         .task(id: reloadKey) { await reload() }
     }
 

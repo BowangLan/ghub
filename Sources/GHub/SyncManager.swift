@@ -15,6 +15,13 @@ final class SyncManager {
         rescheduleTimer()
     }
 
+    func stop() {
+        timerTask?.cancel()
+        timerTask = nil
+        fullSyncRunning = false
+        AppState.shared.isSyncing = false
+    }
+
     func rescheduleTimer() {
         timerTask?.cancel()
         let minutes = max(1, AppState.shared.refreshIntervalMinutes)
